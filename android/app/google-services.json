@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "222197983217",
+    "firebase_url": "https://tonkoh-bible-truth-revea-a7694-default-rtdb.firebaseio.com",
+    "project_id": "tonkoh-bible-truth-revea-a7694",
+    "storage_bucket": "tonkoh-bible-truth-revea-a7694.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:222197983217:android:12fe60ffe61a902a29c650",
+        "android_client_info": {
+          "package_name": "com.tbtrapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAQFRQHFlLB4rk1Hc67_p7VHnlebrEyM-U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

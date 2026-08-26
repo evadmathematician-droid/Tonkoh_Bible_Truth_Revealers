@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ========== CORE ========== -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.READ_CONTACTS"/>
+
+    <!-- ========== NOTIFICATIONS & FOREGROUND ==========
+         FOREGROUND_SERVICE_PHONE_CALL is legitimate ONLY once the app is
+         actually registered as a self-managed Telecom ConnectionService
+         (see CallConnectionService + a TelecomCallManager equivalent,
+         called from MyApp.onCreate()). Until those Kotlin files are
+         ported into this Flutter project and that registration call
+         actually runs, requesting this foreground service type can throw
+         SecurityException at runtime. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+
+    <!-- Belt-and-braces: strip an injected DATA_SYNC type if a dependency's
+         manifest merge adds one. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"
+        tools:node="remove" />
+
+    <!-- ========== TELECOM (self-managed calling account) ========== -->
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS"/>
+    <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
+
+    <!-- ========== HARDWARE / CALLING ========== -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
+    <uses-feature android:name="android.hardware.microphone" android:required="false"/>
+
+    <application
+        android:label="Tonkoh App"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="true"
+        android:enableOnBackInvokedCallback="true"
+        android:supportsRtl="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        tools:targetApi="34">
+        <!--
+          ⚠️ android:name — LEFT AS "${applicationName}" (Flutter's default),
+          NOT switched to ".MyApp" yet. The native app used a custom MyApp
+          Application class to register the Telecom self-managed calling
+          account on startup. Switching this to ".MyApp" before that Kotlin
+          class exists in this project will crash the app immediately on
+          every launch ("Unable to instantiate application"). Port MyApp.kt
+          into android/app/src/main/kotlin/com/tbtrapp/ first, make sure it
+          extends io.flutter.app.FlutterApplication (or your
+          FlutterApplication subclass equivalent), THEN switch this to
+          android:name=".MyApp".
+
+          ⚠️ android:dataExtractionRules / android:fullBackupContent were
+          DROPPED from the native manifest's <application> tag here — they
+          point at @xml/data_extraction_rules and @xml/backup_rules, which
+          don't exist yet in this Flutter project's res/xml/ folder. Add
+          those two XML resource files first (copy them from the native
+          project's res/xml/), then re-add both attributes here, or the
+          build will fail with a resource-not-found error.
+
+          ⚠️ android:theme was also left off here — the native manifest
+          used "@style/Theme.TBTRApp", which doesn't exist in this Flutter
+          project's res/values/styles.xml yet (Flutter's template only
+          defines LaunchTheme and NormalTheme). Either port/rename your
+          native theme into styles.xml as Theme.TBTRApp and add it back
+          here, or intentionally keep using Flutter's LaunchTheme/
+          NormalTheme setup as-is (which is what's currently active below
+          on MainActivity).
+        -->
+
+        <!-- ========== LAUNCHER ========== -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme"
+                />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
+        <!-- ========== AUDIO PLAYBACK NOTIFICATION (just_audio_background /
+             audio_service) ========== Required exact names/paths — see
+             just_audio_background setup docs. Drives the play/pause +
+             progress media notification shown while a sermon plays and the
+             app is backgrounded. FOREGROUND_SERVICE_MEDIA_PLAYBACK and the
+             base FOREGROUND_SERVICE/WAKE_LOCK permissions are already
+             declared above. -->
+        <service
+            android:name="com.ryanheise.audioservice.AudioService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="true"
+            tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+            android:exported="true"
+            tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ========== AUDIO PLAYBACK ==========
+             ⚠️ REQUIRES: android/app/src/main/kotlin/com/tbtrapp/audio/AudioPlaybackService.kt
+             ported from the native project before this component will work. -->
+        <service
+            android:name=".audio.AudioPlaybackService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
+
+        <!-- ========== VOICE RECORDING ==========
+             ⚠️ REQUIRES: android/app/src/main/kotlin/com/tbtrapp/audio/VoiceRecordingService.kt -->
+        <service
+            android:name=".audio.VoiceRecordingService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- ========== CALLING SERVICES ==========
+             ⚠️ ALL FOUR of the following components, plus the two receiver/provider
+             entries and three activities below, require the matching native Kotlin
+             files to be ported from your old project into
+             android/app/src/main/kotlin/com/tbtrapp/calls/ before they will work.
+             Your current Flutter call system (CallNotifications,
+             IncomingCallManager, OngoingCallManager using flutter_local_notifications
+             + flutter_webrtc) does NOT use any of these — it's a parallel, working,
+             pure-Dart implementation. Declaring these in the manifest without the
+             backing Kotlin classes existing does not break your current Dart-based
+             calling — Android only tries to instantiate a component when something
+             actually targets it (e.g. an Intent, or Telecom itself binding to
+             CallConnectionService). But nothing should currently trigger these,
+             since nothing in your Dart code references them yet. -->
+
+        <!-- flutter_foreground_task's own service (required exact name/path —
+             see plugin docs). This is what CallForegroundService.dart actually
+             uses today to keep the process alive during an active call, via
+             a standard foreground-service notification — distinct from the
+             native Telecom-based .calls.OngoingCallService below, which
+             remains unimplemented/unused until its Kotlin is ported. -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="microphone|camera"
+            android:exported="false" />
+
+        <!-- Keeps the call alive with WebRTC, camera, and mic. -->
+        <service
+            android:name=".calls.OngoingCallService"
+            android:exported="false"
+            android:foregroundServiceType="camera|microphone" />
+
+        <!-- Foreground service that shows ringing UI and manages accept/decline. -->
+        <service
+            android:name=".calls.CallService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall|microphone|camera" />
+
+        <!-- Self-managed Telecom ConnectionService. exported="true" +
+             BIND_TELECOM_CONNECTION_SERVICE is required — Telecom itself binds
+             to this from the system process, so this isn't a real
+             external-exposure risk once the Kotlin class exists. -->
+        <service
+            android:name=".calls.CallConnectionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
+
+        <!-- ========== CALL RECEIVER ========== -->
+        <receiver
+            android:name=".calls.CallActionReceiver"
+            android:exported="false" />
+
+        <!-- Early context grab so a push extension never races Application.onCreate -->
+        <provider
+            android:name=".calls.CallAppContextProvider"
+            android:authorities="${applicationId}.callappcontextprovider"
+            android:exported="false" />
+
+        <!-- OneSignal 5.x extension entry point.
+             ⚠️ REQUIRES: com.tbtrapp.calls.CallNotificationServiceExtension.kt.
+             Your current Flutter setup relies on OneSignal's default handling +
+             flutter_local_notifications (via CallNotifications.dart) instead —
+             leave this meta-data out entirely unless/until you port that
+             extension class, otherwise OneSignal will try to invoke a class
+             that doesn't exist when a push arrives. -->
+        <!--
+        <meta-data
+            android:name="com.onesignal.NotificationServiceExtension"
+            android:value="com.tbtrapp.calls.CallNotificationServiceExtension" />
+        -->
+
+        <!-- ========== CALL ACTIVITIES ==========
+             ⚠️ REQUIRES: IncomingCallActivity.kt, OutgoingCallActivity.kt,
+             OngoingCallActivity.kt ported. Your current Dart call screens
+             (IncomingCallScreen, OutgoingCallScreen, OngoingCallScreen) are the
+             ones actually driving your calls today via CallNavigator — these
+             native Activities are a separate, currently-unused native UI layer
+             that only matters if you complete the native Telecom integration. -->
+
+        <!-- Full-screen incoming-call UI, shows over lock screen -->
+        <activity
+            android:name=".calls.IncomingCallActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:turnScreenOn="true"
+            android:showWhenLocked="true"
+            android:theme="@style/NormalTheme" />
+
+        <!-- "Calling…" screen shown to the caller while ringing -->
+        <activity
+            android:name=".calls.OutgoingCallActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/NormalTheme" />
+
+        <!-- Connected-call screen; thin UI shell that binds to OngoingCallService -->
+        <activity
+            android:name=".calls.OngoingCallActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:theme="@style/NormalTheme" />
+
+        <!-- ========== FILE PROVIDER ==========
+             ⚠️ CHECK FOR CONFLICTS before building: some Flutter plugins
+             (e.g. share_plus, image_picker) auto-merge their own
+             androidx.core.content.FileProvider declaration with the same
+             "${applicationId}.fileprovider" authority via their own AAR
+             manifests. Two providers with the identical authority string
+             will fail the manifest merge with a conflict error. If that
+             happens, either remove this block (letting the plugin's own
+             provider + its own file_paths.xml serve both needs — check
+             what paths it already exposes), or add tools:node="replace"
+             here and make sure @xml/file_paths (ported from your native
+             project's res/xml/) is present and covers whatever paths that
+             plugin's default file_paths.xml would have covered too.
+             REQUIRES: res/xml/file_paths.xml ported from the native project. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+    </application>
+
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
+
+</manifest>

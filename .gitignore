@@ -1,0 +1,64 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Signing secrets — key.properties holds the release keystore's plaintext
+# passwords, and *.jks/*.keystore is the keystore itself. Neither belongs
+# in version control, especially a public repo: leaking the signing key
+# lets anyone publish updates to this app's real users as if they were you.
+android/key.properties
+*.jks
+*.keystore
+
+# Machine-specific Android SDK path, not portable across clones.
+android/local.properties
+
+# Claude Code local session settings/state — not meant to be shared/versioned.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# Build output that landed under android/ instead of the redirected root
+# /build/ dir (already ignored above) during local Gradle runs.
+/android/build/
