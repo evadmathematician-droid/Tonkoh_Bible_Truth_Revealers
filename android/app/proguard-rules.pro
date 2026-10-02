@@ -1,91 +1,35 @@
 # ============================================================================
-#  R8 / ProGuard keep rules for the TBTR release build.
+#  R8 keep rules for the TBTR release build (minify + resource shrinking ON).
 #
-#  STATUS: staged, NOT active. `isMinifyEnabled` is false in build.gradle.kts,
-#  so these rules do nothing yet. Turning minification on is a separate,
-#  device-regression-tested change — flip the two flags in the release
-#  buildType and do a full pass (calls, OneSignal push, chat, photo upload,
-#  audio playback + notification) on a real device before shipping.
+#  Only rules R8 cannot work out for itself belong here. Firebase, Play
+#  services, OneSignal, OkHttp, coroutines and AndroidX ship their own
+#  consumer rules inside their AARs, and the Flutter Gradle plugin adds the
+#  Flutter/Dart rules. Blanket `-keep class some.library.** { *; }` rules
+#  switch R8 off for that whole library and count against Google Play's
+#  code-optimization coverage, so don't add them back without a reason.
 #
-#  The Flutter Gradle plugin contributes its own Flutter/Dart keep rules
-#  automatically when minification is on; everything below is for the native
-#  third-party SDKs this app bundles, which use reflection / JNI / native
-#  callbacks that R8 can't see.
+#  Classes declared in AndroidManifest.xml (activities, services, receivers)
+#  are kept automatically by AAPT-generated rules.
 # ============================================================================
 
-# ---- Kotlin / coroutines -----------------------------------------------------
--dontwarn kotlinx.coroutines.**
--keepclassmembers class kotlin.Metadata { *; }
-
-# ---- Gson (reflective serialization) ---------------------------------------
--keep class com.google.gson.** { *; }
--keepattributes Signature, *Annotation*, EnclosingMethod, InnerClasses
--keepclassmembers,allowobfuscation class * {
-    @com.google.gson.annotations.SerializedName <fields>;
-}
-# Model classes serialized/deserialized by Gson in this app live in
-# com.tbtrapp.** — keep their members so field names survive.
--keepclassmembers class com.tbtrapp.** { <fields>; }
-
-# ---- Firebase (Auth / Database / Firestore / Storage) ----------------------
--keep class com.google.firebase.** { *; }
--keep class com.google.android.gms.** { *; }
--dontwarn com.google.firebase.**
--dontwarn com.google.android.gms.**
-# Firestore/RTDB map POJOs onto model classes by reflection.
--keepclassmembers class com.tbtrapp.** {
-    <init>();
-}
-
-# ---- OneSignal ------------------------------------------------------------
--keep class com.onesignal.** { *; }
--dontwarn com.onesignal.**
-
-# ---- WebRTC (io.github.webrtc-sdk) --------------------------------------------
+# ---- WebRTC ------------------------------------------------------------------
+# The native libwebrtc calls back into these Java classes through JNI by name
+# (observers, video frames, audio device module). R8 can't see JNI callers.
 -keep class org.webrtc.** { *; }
 -dontwarn org.webrtc.**
 
-# ---- AndroidX Room (kapt-generated + entities) -----------------------------
--keep class * extends androidx.room.RoomDatabase { *; }
--keep @androidx.room.Entity class * { *; }
--dontwarn androidx.room.paging.**
+# ---- Firebase Realtime Database model --------------------------------------
+# Read with DataSnapshot.getValue(IceCandidateModel::class.java), which maps
+# fields onto the class by reflection and needs the no-arg constructor.
+-keep class com.tbtrapp.calls.IceCandidateModel { *; }
 
-# ---- Media3 / ExoPlayer ----------------------------------------------------
--keep class androidx.media3.** { *; }
--dontwarn androidx.media3.**
+# ---- OneSignal notification extension ---------------------------------------
+# Instantiated by OneSignal from the class name in the manifest <meta-data>
+# value "com.onesignal.NotificationServiceExtension"; R8 doesn't read
+# meta-data values, so it would otherwise rename or remove the class.
+-keep class com.tbtrapp.calls.CallNotificationServiceExtension { <init>(); *; }
 
-# ---- Coil (io.coil-kt) ---------------------------------------------------------
--keep class coil.** { *; }
--dontwarn coil.**
-
-# ---- Cloudinary ----------------------------------------------------------------
--keep class com.cloudinary.** { *; }
--dontwarn com.cloudinary.**
-
-# ---- vanniktech android-image-cropper ------------------------------------------
--keep class com.canhub.cropper.** { *; }
--keep class com.vanniktech.** { *; }
--dontwarn com.canhub.cropper.**
-
-# ---- OkHttp / Okio -----------------------------------------------------------
--dontwarn okhttp3.**
--dontwarn okio.**
--dontwarn org.conscrypt.**
-
-# ---- audio_service (com.ryanheise) -------------------------------------------
--keep class com.ryanheise.audioservice.** { *; }
-
-# ---- Our own platform-channel classes (referenced only from the manifest /
-#      Flutter, so R8 sees them as unused) ----------------------------------
--keep class com.tbtrapp.MainActivity { *; }
--keep class com.tbtrapp.platform.** { *; }
--keep class com.tbtrapp.calls.** { *; }
--keep class com.tbtrapp.audio.** { *; }
-
-# ---- ShortcutBadger --------------------------------------------------------
--keep class me.leolin.shortcutbadger.** { *; }
--dontwarn me.leolin.shortcutbadger.**
-
-# ---- Play Core (in-app updates) -------------------------------------------
--keep class com.google.android.play.core.** { *; }
+# ---- Play Core (Flutter deferred components) -------------------------------
+# The Flutter engine references Play Core split-install classes that this
+# app doesn't ship (it doesn't use deferred components).
 -dontwarn com.google.android.play.core.**
