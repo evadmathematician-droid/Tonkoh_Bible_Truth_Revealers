@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Covers context.cacheDir (used by ShareUtils for the cached logo/video images) -->
+    <cache-path name="shared_files" path="." />
+
+    <!-- Covers context.externalCacheDir, in case any share/export flow uses it -->
+    <external-cache-path name="external_shared_files" path="." />
+
+    <!-- Covers context.filesDir, in case downloaded audio/video files are shared from there -->
+    <files-path name="internal_files" path="." />
+</paths>

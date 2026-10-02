@@ -1,0 +1,16 @@
+{
+  "_comment": "Merge these two keys into the project's existing Realtime Database rules (Firebase console → Realtime Database → Rules). The migration Worker uses a DB access token so its writes bypass these; clients must NOT be able to write the attempt counter.",
+
+  "rules": {
+    "migrationAttempts": {
+      "$claimedPhone": {
+        ".read": true,
+        ".write": false
+      }
+    },
+
+    "userChats": {
+      "_comment": "Unchanged — already client-readable in this app (DiscussionsScreen). The Worker also reads it server-side with its DB token. If you later tighten this, keep the Worker's token allowed."
+    }
+  }
+}
