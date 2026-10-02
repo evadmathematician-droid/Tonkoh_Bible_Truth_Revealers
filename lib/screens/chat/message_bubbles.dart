@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../cloudinary/cloudinary_upload.dart';
 import '../../data/private_message.dart';
+import '../../util/base64_image_cache.dart';
 import '../../services/share_service.dart';
 import '../../widgets/media_download_button.dart';
 import '../media/cached_audio_tile.dart';
@@ -37,19 +38,12 @@ class AvatarView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     ImageProvider? image;
-    if (photoBase64.isNotEmpty) {
-      try {
-        // Decode the avatar at its display size, not the full crop
-        // resolution — see ProfileAvatar for the same reasoning.
-        final px = (size * MediaQuery.devicePixelRatioOf(context)).ceil();
-        image = ResizeImage(
-          MemoryImage(base64Decode(photoBase64)),
-          width: px,
-          height: px,
-        );
-      } catch (_) {
-        image = null;
-      }
+    final bytes = Base64ImageCache.decode(photoBase64);
+    if (bytes != null) {
+      // Decode the avatar at its display size, not the full crop
+      // resolution — see ProfileAvatar for the same reasoning.
+      final px = (size * MediaQuery.devicePixelRatioOf(context)).ceil();
+      image = ResizeImage(MemoryImage(bytes), width: px, height: px);
     }
     return CircleAvatar(
       radius: size / 2,
@@ -149,6 +143,11 @@ class ImageMessageBubble extends StatelessWidget {
 
     const constraints = BoxConstraints(
         maxWidth: 230, maxHeight: 300, minWidth: 120, minHeight: 120);
+    // Decode at most as wide as the bubble can draw; the full-screen viewer
+    // still loads the original. Aspect ratio is kept and small photos are
+    // never upscaled, so the bubble's size is unchanged.
+    final decodeWidth =
+        (constraints.maxWidth * MediaQuery.devicePixelRatioOf(context)).ceil();
 
     if (isRemoteMediaSource(fileUrl)) {
       return GestureDetector(
@@ -160,6 +159,7 @@ class ImageMessageBubble extends StatelessWidget {
             child: CachedNetworkImage(
               imageUrl: fileUrl,
               fit: BoxFit.cover,
+              memCacheWidth: decodeWidth,
               placeholder: (_, __) => Container(
                 width: 200,
                 height: 160,
@@ -174,12 +174,7 @@ class ImageMessageBubble extends StatelessWidget {
       );
     }
 
-    Uint8List? bytes;
-    try {
-      bytes = base64Decode(fileUrl);
-    } catch (_) {
-      bytes = null;
-    }
+    final bytes = Base64ImageCache.decode(fileUrl);
     if (bytes == null) {
       return const Padding(
         padding: EdgeInsets.all(8),
@@ -197,6 +192,7 @@ class ImageMessageBubble extends StatelessWidget {
           child: Image.memory(
             imageBytes,
             fit: BoxFit.cover,
+            cacheWidth: decodeWidth,
             errorBuilder: (_, __, ___) => _brokenImage(),
           ),
         ),

@@ -1,9 +1,9 @@
-import 'dart:convert';
 import 'dart:typed_data';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import '../calls/ongoing_call_screen.dart';
 import '../navigation/call_navigator.dart';
+import '../util/base64_image_cache.dart';
 import 'call_signaling_repository.dart';
 import 'incoming_call_manager.dart';
 import 'dart:async';
@@ -62,14 +62,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     });
   }
 
-  Uint8List? _decodePhoto() {
-    if (widget.callerPhoto.isEmpty) return null;
-    try {
-      return base64Decode(widget.callerPhoto);
-    } catch (_) {
-      return null;
-    }
-  }
+  Uint8List? _decodePhoto() => Base64ImageCache.decode(widget.callerPhoto);
 
   Future<void> _accept() async {
     // Route through the manager so its ringing timers / listeners / the

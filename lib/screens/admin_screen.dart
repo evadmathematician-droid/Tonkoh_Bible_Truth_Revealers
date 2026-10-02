@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -60,12 +62,14 @@ class _AdminPanel extends StatefulWidget {
 class _AdminPanelState extends State<_AdminPanel> {
   List<FeedbackItem> _feedback = [];
   bool _isLoading = true;
+  StreamSubscription<DatabaseEvent>? _feedbackSub;
 
   @override
   void initState() {
     super.initState();
     final ref = FirebaseDatabase.instance.ref('feedback');
-    ref.onValue.listen((event) {
+    _feedbackSub = ref.onValue.listen((event) {
+      if (!mounted) return;
       final value = event.snapshot.value;
       final list = <FeedbackItem>[];
       if (value is Map) {
@@ -81,8 +85,14 @@ class _AdminPanelState extends State<_AdminPanel> {
         _isLoading = false;
       });
     }, onError: (_) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     });
+  }
+
+  @override
+  void dispose() {
+    _feedbackSub?.cancel();
+    super.dispose();
   }
 
   String _formatTimestamp(int millis) {

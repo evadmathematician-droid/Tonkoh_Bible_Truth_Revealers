@@ -1,6 +1,7 @@
-import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+
+import '../../util/base64_image_cache.dart';
 
 /// Equivalent of FullScreenProfilePhoto.kt — a full-bleed dismissible
 /// overlay, not a route/destination. Show it with showGeneralDialog or
@@ -25,14 +26,7 @@ class FullScreenProfilePhoto extends StatelessWidget {
     this.onEditRequested,
   });
 
-  Uint8List? _decodedBytes() {
-    if (photoUrl == null || photoUrl!.isEmpty) return null;
-    try {
-      return base64Decode(photoUrl!);
-    } catch (_) {
-      return null;
-    }
-  }
+  Uint8List? _decodedBytes() => Base64ImageCache.decode(photoUrl);
 
   @override
   Widget build(BuildContext context) {

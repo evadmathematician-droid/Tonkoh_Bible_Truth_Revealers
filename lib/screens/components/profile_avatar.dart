@@ -1,7 +1,7 @@
-import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../data/profile_photo_cache.dart';
+import '../../util/base64_image_cache.dart';
 
 class ProfileAvatar extends StatelessWidget {
   final String name;
@@ -17,14 +17,7 @@ class ProfileAvatar extends StatelessWidget {
     this.onTap,
   });
 
-  Uint8List? _decodedBytes() {
-    if (photoUrl == null || photoUrl!.isEmpty) return null;
-    try {
-      return base64Decode(photoUrl!);
-    } catch (_) {
-      return null;
-    }
-  }
+  Uint8List? _decodedBytes() => Base64ImageCache.decode(photoUrl);
 
   String get _initials {
     final parts = name.trim().split(' ').where((p) => p.isNotEmpty).take(2);

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +6,7 @@ import 'package:firebase_database/firebase_database.dart';
 
 import '../data/chat_summary.dart';
 import '../screens/auth/auth_manager.dart';
+import '../util/base64_image_cache.dart';
 
 /// Real "Discussions" list — replaces the old `_StubScreen('Chat List')`
 /// route. Reads `userChats/{currentUid}` from Firebase Realtime Database
@@ -98,18 +98,11 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
   }
 
   ImageProvider? _avatarFromBase64(String base64Str) {
-    if (base64Str.isEmpty) return null;
-    try {
-      // List-row avatars are small; decode the (camera-crop-sized) photo
-      // down to ~128 px rather than caching it at full resolution.
-      return ResizeImage(
-        MemoryImage(base64Decode(base64Str)),
-        width: 128,
-        height: 128,
-      );
-    } catch (_) {
-      return null;
-    }
+    final bytes = Base64ImageCache.decode(base64Str);
+    if (bytes == null) return null;
+    // List-row avatars are small; decode the (camera-crop-sized) photo
+    // down to ~128 px rather than caching it at full resolution.
+    return ResizeImage(MemoryImage(bytes), width: 128, height: 128);
   }
 
   @override

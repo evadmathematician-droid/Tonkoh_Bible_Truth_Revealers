@@ -356,6 +356,12 @@ class _ImageItem extends StatelessWidget {
               child: CachedNetworkImage(
                 imageUrl: sermon.audioUrl,
                 fit: BoxFit.cover,
+                // The tile is at most screen-wide; don't hold the original
+                // upload's full resolution in memory for every feed row.
+                // Tapping still opens the full-size image.
+                memCacheWidth: (MediaQuery.sizeOf(context).width *
+                        MediaQuery.devicePixelRatioOf(context))
+                    .ceil(),
                 placeholder: (_, __) => _thumbLoading(),
                 errorWidget: (_, __, ___) =>
                     _thumbBroken(Icons.broken_image_outlined),
