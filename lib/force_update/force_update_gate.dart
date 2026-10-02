@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
+import 'force_update_manager.dart';
 import 'force_update_screen.dart';
-import 'force_update_service.dart';
 
 /// Wraps the whole app and replaces it with [ForceUpdateScreen] while the
-/// installed version is below the required minimum.
+/// policy blocks this version (update required or maintenance mode).
 ///
 /// Install it through `MaterialApp.builder` so it sits above the app's
 /// Navigator — then no route, deep link or notification tap can reach a
@@ -22,7 +22,7 @@ import 'force_update_service.dart';
 class ForceUpdateGate extends StatefulWidget {
   const ForceUpdateGate({super.key, required this.logo, required this.child});
 
-  /// Shown on the update screen and while the first check runs.
+  /// Shown on the blocking screen and while the first check runs.
   final Widget logo;
   final Widget child;
 
@@ -32,13 +32,13 @@ class ForceUpdateGate extends StatefulWidget {
 
 class _ForceUpdateGateState extends State<ForceUpdateGate>
     with WidgetsBindingObserver {
-  final _service = ForceUpdateService.instance;
+  final _manager = ForceUpdateManager.instance;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _service.check();
+    _manager.check();
   }
 
   @override
@@ -51,22 +51,22 @@ class _ForceUpdateGateState extends State<ForceUpdateGate>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Covers both an old session brought back from the background and the
     // user returning from the store or the APK installer.
-    if (state == AppLifecycleState.resumed) _service.check();
+    if (state == AppLifecycleState.resumed) _manager.check();
   }
 
   /// While blocked, the app's own Navigator is not in the tree, so the
   /// system back button would otherwise close the app instead of doing
   /// nothing. Swallow it.
   @override
-  Future<bool> didPopRoute() async => _service.isBlocked;
+  Future<bool> didPopRoute() async => _manager.isBlocked;
 
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<ForceUpdateStatus?>(
-      valueListenable: _service.status,
+      valueListenable: _manager.status,
       builder: (context, status, _) {
         if (status == null) return _CheckingScreen(logo: widget.logo);
-        if (!status.mustUpdate) return widget.child;
+        if (!status.isBlocked) return widget.child;
 
         // A dedicated Navigator gives the screen a route, which PopScope
         // needs in order to block back (including predictive back).

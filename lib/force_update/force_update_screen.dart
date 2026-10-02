@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 
-import 'force_update_service.dart';
+import 'force_update_manager.dart';
 
-/// Full-screen block shown while the app is outdated. It has no close,
-/// "Later" or navigation controls, and back is disabled — the only action
-/// is "Update Now".
+/// Full-screen block shown while the policy doesn't allow this version.
+///
+/// It has no close, "Later" or navigation controls and back is disabled.
+/// When an update is required the only action is "Update Now"; in
+/// maintenance mode the only action is "Try again", which re-checks the
+/// policy.
 class ForceUpdateScreen extends StatefulWidget {
   const ForceUpdateScreen({
     super.key,
@@ -23,16 +26,25 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
   bool _busy = false;
   String? _error;
 
-  Future<void> _update() async {
+  bool get _maintenance =>
+      widget.status.decision == ForceUpdateDecision.maintenance;
+
+  Future<void> _onPressed() async {
     setState(() {
       _busy = true;
       _error = null;
     });
-    final opened = await ForceUpdateService.instance.startUpdate();
+    final manager = ForceUpdateManager.instance;
+    var ok = true;
+    if (_maintenance) {
+      await manager.check();
+    } else {
+      ok = await manager.startUpdate();
+    }
     if (!mounted) return;
     setState(() {
       _busy = false;
-      _error = opened
+      _error = ok
           ? null
           : "Couldn't open the update page. Check your internet connection "
               'and try again.';
@@ -43,6 +55,16 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final status = widget.status;
+    final policy = status.policy;
+
+    final title = _maintenance ? 'Under maintenance' : 'Update required';
+    final message = _maintenance
+        ? (policy.maintenanceMessage.isEmpty
+            ? ForceUpdateManager.defaultMaintenanceMessage
+            : policy.maintenanceMessage)
+        : (policy.updateMessage.isEmpty
+            ? ForceUpdateManager.defaultUpdateMessage
+            : policy.updateMessage);
 
     return PopScope(
       canPop: false,
@@ -59,33 +81,36 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                     SizedBox(width: 96, height: 96, child: widget.logo),
                     const SizedBox(height: 24),
                     Text(
-                      'Update required',
+                      title,
                       style: theme.textTheme.headlineSmall
                           ?.copyWith(fontWeight: FontWeight.bold),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      status.message,
+                      message,
                       style: theme.textTheme.bodyLarge,
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 24),
-                    _VersionRow(
-                      label: 'Installed version',
-                      value: status.currentVersion,
-                    ),
-                    const SizedBox(height: 4),
-                    _VersionRow(
-                      label: 'Required version',
-                      value: status.requiredVersion,
-                    ),
+                    if (!_maintenance) ...[
+                      const SizedBox(height: 24),
+                      _VersionRow(
+                        label: 'Installed version',
+                        value: '${status.installedVersionName} '
+                            '(${status.installedVersionCode ?? '?'})',
+                      ),
+                      const SizedBox(height: 4),
+                      _VersionRow(
+                        label: 'Required version',
+                        value: '${policy.minVersionCode} or newer',
+                      ),
+                    ],
                     const SizedBox(height: 32),
                     SizedBox(
                       width: double.infinity,
                       height: 52,
                       child: FilledButton.icon(
-                        onPressed: _busy ? null : _update,
+                        onPressed: _busy ? null : _onPressed,
                         icon: _busy
                             ? const SizedBox(
                                 width: 18,
@@ -93,8 +118,10 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                                 child:
                                     CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : const Icon(Icons.system_update),
-                        label: const Text('Update Now'),
+                            : Icon(_maintenance
+                                ? Icons.refresh
+                                : Icons.system_update),
+                        label: Text(_maintenance ? 'Try again' : 'Update Now'),
                       ),
                     ),
                     if (_error != null) ...[
