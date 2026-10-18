@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -8,6 +10,7 @@ import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:provider/provider.dart';
 
 import 'data/display_names.dart';
+import 'share/share_intake.dart';
 import 'navigation/auth_gate.dart';
 import 'firebase_options.dart';
 import 'force_update/force_update_gate.dart';
@@ -117,6 +120,10 @@ Future<void> main() async {
     }
   });
   // ──────────────────────
+
+  // Content shared in from other apps ("Share → TBTR App"); held until
+  // AuthGate reports a signed-in profile.
+  unawaited(ShareIntake.instance.init());
 
   runApp(const TBTRApp());
 }

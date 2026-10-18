@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../data/contact_sync_service.dart';
 import '../screens/auth/auth_manager.dart';
+import '../share/share_intake.dart';
 import '../screens/profile/profile_setup_screen.dart';
 import '../permissions/permissions_onboarding.dart';
 import '../calls/call_signaling_repository.dart';
@@ -72,6 +73,8 @@ class _AuthGateState extends State<AuthGate> {
     _uid = uid;
     setState(() => _status = _GateStatus.ready);
     _watchProfileExistence(uid);
+    // Anything shared in from another app while signed out can open now.
+    ShareIntake.instance.onSignedIn();
 
     // FIX (web/desktop/iOS showed no incoming-call UI at all): the incoming-call
     // RTDB listener was only ever wired up in lib/screens/auth/auth_gate.dart,

@@ -58,6 +58,20 @@ firebase emulators:exec --only database --project demo-tbtr \
 Deploy with `firebase deploy --only database` — see the rollout order in
 `cloudflare/README_migration.md` first.
 
+## Sharing into the app
+
+On Android, "Share → TBTR App" from TikTok, WhatsApp, YouTube, the gallery
+etc. lands in `ShareReceiverActivity` (copies the content, brings the app
+forward) and opens the "Share to…" screen (`lib/share/`), where it can be
+posted to the audio feed and/or sent to private chats.
+
+iOS isn't wired yet. It needs a **Share Extension** target in Xcode
+(`ios/`), an App Group shared between the extension and the app, the
+extension writing the shared items into the group container and opening the
+app via a custom URL scheme, and `AppDelegate` answering the same
+`com.tbtrapp/share` channel (`ready` / `onShare`, same map shape as
+`ShareInbox.Payload.toMap`).
+
 ## Cloudflare Worker
 
 `cloudflare/worker_full.js` is the whole Worker. Secrets and deploy steps are
