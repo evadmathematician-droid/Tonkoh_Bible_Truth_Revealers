@@ -85,8 +85,12 @@ class ReplyQuotePreview extends StatelessWidget {
   final PrivateMessage message;
   final bool isMine;
 
+  /// Display name for the quoted sender (saved contact / number / "You");
+  /// falls back to the name stored on the message.
+  final String? senderLabel;
+
   const ReplyQuotePreview(
-      {super.key, required this.message, this.isMine = false});
+      {super.key, required this.message, this.isMine = false, this.senderLabel});
 
   @override
   Widget build(BuildContext context) {
@@ -106,9 +110,9 @@ class ReplyQuotePreview extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            message.replyToSenderName.isEmpty
+            (senderLabel ?? message.replyToSenderName).isEmpty
                 ? 'Reply'
-                : message.replyToSenderName,
+                : (senderLabel ?? message.replyToSenderName),
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.bold,

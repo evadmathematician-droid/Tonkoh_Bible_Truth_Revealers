@@ -2,6 +2,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 
 import '../data/chat_summary.dart';
+import '../data/display_names.dart';
 import '../data/local_chat_store.dart';
 import '../data/private_message.dart';
 import '../screens/chat/chat_helpers.dart' show privateChatId;
@@ -89,7 +90,7 @@ class MissedCallLog {
 
       if (notify) {
         await CallNotifications.showMissedCall(
-          callerName: otherName,
+          callerName: DisplayNames.instance.nameFor(otherUid),
           callType: callType,
           chatId: cid,
         );

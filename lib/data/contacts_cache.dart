@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'app_contact.dart';
 import 'contacts_repository.dart';
+import 'display_names.dart';
 
 /// App-wide singleton cache of the classified contact book, so leaving and
 /// returning to the Contacts screen renders instantly rather than
@@ -33,6 +34,11 @@ class ContactsCache extends ChangeNotifier {
     lastSyncAt = DateTime.now();
     hasLoadedOnce = true;
     notifyListeners();
+    // Saved-contact names drive every name shown in the app. Skip when the
+    // users read failed — everyone would look unsaved and lose their name.
+    if (ContactsRepository.lastFirebaseCount > 0) {
+      DisplayNames.instance.updateFromContacts(value.onApp);
+    }
   }
 
   void clear() {

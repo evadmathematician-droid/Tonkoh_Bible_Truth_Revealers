@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 import 'package:vibration/vibration.dart';
+import '../data/display_names.dart';
 import '../navigation/call_navigator.dart';
 import 'call_notifications.dart';
 import 'call_signaling_repository.dart';
@@ -37,6 +38,12 @@ class IncomingCallManager {
     required String chatId,
     required String callType,
   }) async {
+    // Show the caller under my contact naming rule (saved name or number),
+    // not the name they sent.
+    if (callerId.isNotEmpty) {
+      callerName = DisplayNames.instance.nameFor(callerId);
+    }
+
     // FIX (double-ring bug): Android's native Kotlin stack
     // (TelecomCallManager + CallService + CallConnectionService) already
     // owns ringing there, including killed-process state, which Flutter

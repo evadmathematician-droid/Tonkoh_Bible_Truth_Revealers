@@ -2,6 +2,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../data/display_names.dart';
 import '../navigation/call_navigator.dart';
 import 'incoming_call_manager.dart';
 
@@ -57,7 +58,10 @@ class NativeCallBridge {
     if (callId == null || callId.isEmpty) return;
 
     final callerId = extras['callerId'] ?? '';
-    final callerName = extras['callerName'] ?? 'Unknown';
+    // Saved-contact name or number — never the caller's self-chosen name.
+    final callerName = callerId.isNotEmpty
+        ? DisplayNames.instance.nameFor(callerId)
+        : (extras['callerName'] ?? 'Unknown');
     final callerPhoto = extras['callerPhoto'] ?? '';
     final chatId = extras['chatId'] ?? '';
     final callType = extras['callType'] ?? 'audio';

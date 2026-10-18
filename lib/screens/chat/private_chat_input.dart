@@ -10,6 +10,8 @@ const _kBrand = Color(0xFF102A72);
 class PrivateChatInputBar extends StatelessWidget {
   final bool isUploadingAttachment;
   final PrivateMessage? replyingTo;
+  // Who [replyingTo] is from, already resolved to a display name.
+  final String replyingToName;
   final VoidCallback onCancelReply;
 
   final bool isRecording;
@@ -36,6 +38,7 @@ class PrivateChatInputBar extends StatelessWidget {
     super.key,
     required this.isUploadingAttachment,
     required this.replyingTo,
+    this.replyingToName = '',
     required this.onCancelReply,
     required this.isRecording,
     required this.isPaused,
@@ -66,7 +69,11 @@ class PrivateChatInputBar extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (replyingTo != null) _ReplyPreviewBar(message: replyingTo!, onCancel: onCancelReply),
+            if (replyingTo != null)
+              _ReplyPreviewBar(
+                  message: replyingTo!,
+                  senderName: replyingToName,
+                  onCancel: onCancelReply),
             if (isUploadingAttachment)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 4),
@@ -150,9 +157,11 @@ class PrivateChatInputBar extends StatelessWidget {
 
 class _ReplyPreviewBar extends StatelessWidget {
   final PrivateMessage message;
+  final String senderName;
   final VoidCallback onCancel;
 
-  const _ReplyPreviewBar({required this.message, required this.onCancel});
+  const _ReplyPreviewBar(
+      {required this.message, required this.senderName, required this.onCancel});
 
   @override
   Widget build(BuildContext context) {
@@ -170,7 +179,7 @@ class _ReplyPreviewBar extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Replying to ${message.senderName.isEmpty ? "message" : message.senderName}',
+                  'Replying to ${senderName.isEmpty ? "message" : senderName}',
                   style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _kBrand),
                 ),
                 Text(

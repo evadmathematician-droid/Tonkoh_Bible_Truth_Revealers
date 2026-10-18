@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:provider/provider.dart';
 
 import '../data/chat_summary.dart';
+import '../data/display_names.dart';
 import '../screens/auth/auth_manager.dart';
 import '../util/base64_image_cache.dart';
 
@@ -107,6 +109,7 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final names = context.watch<DisplayNames>();
     return Scaffold(
       appBar: AppBar(
         title: const Text('Discussions'),
@@ -141,8 +144,10 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                   ? const Icon(Icons.person, color: Color(0xFF102A72))
                   : null,
             ),
+            // Saved-contact name, or just the number for anyone not in
+            // the phone's contacts (never their self-chosen profile name).
             title: Text(
-              chat.otherName.isEmpty ? 'Chat' : chat.otherName,
+              names.nameFor(chat.otherUid),
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             subtitle: Text(

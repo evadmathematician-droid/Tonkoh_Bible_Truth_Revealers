@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
+import '../data/contact_sync_service.dart';
 import '../screens/auth/auth_manager.dart';
 import '../screens/profile/profile_setup_screen.dart';
 import '../permissions/permissions_onboarding.dart';
@@ -48,11 +49,15 @@ class _AuthGateState extends State<AuthGate> {
       onReady: () async {
         // If the cache already resolved us to Ready above, don't
         // second-guess it — same guard as the Kotlin version.
-        if (_status == _GateStatus.ready) return;
+        if (_status == _GateStatus.ready) {
+          unawaited(ContactSyncService.instance.start());
+          return;
+        }
         final cached2 = await AuthManager.getCachedProfile();
         if (!mounted) return;
         if (cached2 != null) {
           _setReady(cached2.uid);
+          unawaited(ContactSyncService.instance.start());
         } else {
           setState(() => _status = _GateStatus.needsProfile);
         }
@@ -211,7 +216,11 @@ class _AuthGateState extends State<AuthGate> {
               // prompts as the user lands on the home screen. Not awaited:
               // denial must never block navigation, and the helper is a
               // no-op after the first run.
-              PermissionsOnboarding.maybeRunAfterRegistration();
+              // Contact sync asks for its own permission, so start it only
+              // once these dialogs are done (two permission requests at
+              // once fail).
+              PermissionsOnboarding.maybeRunAfterRegistration().whenComplete(
+                  () => ContactSyncService.instance.start());
             } else {
               setState(() => _status = _GateStatus.needsProfile);
             }

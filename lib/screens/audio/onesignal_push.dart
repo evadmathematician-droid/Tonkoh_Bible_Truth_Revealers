@@ -28,7 +28,13 @@ Future<void> sendAudioPushNotification({
         'segments': ['All'],
         'heading': heading,
         'content': '$senderName: $messageBody',
-        'data': {'type': 'audio_message', 'senderUid': senderUid},
+        // body lets the receiving phone rebuild the text with its own
+        // contact name for the sender (CallNotificationServiceExtension.kt).
+        'data': {
+          'type': 'audio_message',
+          'senderUid': senderUid,
+          'body': messageBody,
+        },
         'smallIcon': 'ic_notification_logo',
         'largeIcon': 'ic_notification_logo',
       }),

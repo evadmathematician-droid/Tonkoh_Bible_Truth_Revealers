@@ -7,6 +7,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:provider/provider.dart';
 
+import 'data/display_names.dart';
 import 'navigation/auth_gate.dart';
 import 'firebase_options.dart';
 import 'force_update/force_update_gate.dart';
@@ -45,6 +46,10 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Saved-contact names from the last contact sync, so the first frame
+  // already shows the right names (the sync itself starts in AuthGate).
+  await DisplayNames.instance.load();
 
   // Media session for the audio-feed player — gives it an Android media
   // notification (title / artwork / play / pause / seek), lock-screen and
@@ -125,6 +130,8 @@ class TBTRApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AudioFeedProvider()..init()),
         ChangeNotifierProvider.value(value: GlobalAudioPlayer.instance),
+        // Saved-contact names (or bare numbers) for every person shown.
+        ChangeNotifierProvider.value(value: DisplayNames.instance),
       ],
       child: MaterialApp(
         navigatorKey: CallNavigator.key, // ← required for background navigation

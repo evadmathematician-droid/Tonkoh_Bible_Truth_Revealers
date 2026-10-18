@@ -12,12 +12,14 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl_phone_field/countries.dart';
 import 'package:pasteboard/pasteboard.dart';
+import 'package:provider/provider.dart';
 
 import '../auth/auth_manager.dart';
 import '../auth/presence_manager.dart';
 import '../../cloudinary/cloudinary_upload.dart';
 import '../../data/chat_summary.dart';
 import '../../data/chat_read_position_store.dart';
+import '../../data/display_names.dart';
 import '../../data/local_chat_store.dart';
 import '../../data/private_message.dart';
 import '../../services/resumable_downloader.dart';
@@ -53,7 +55,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   String _currentSenderPhotoUrl = '';
   UserProfile? _currentProfile;
 
-  String _otherUserName = '';
+  // The name they gave their own profile — only written into chat-list
+  // records. What this screen shows is [_otherUserName].
+  String _otherProfileName = '';
+
+  /// Saved-contact name, or just their number if not in my contacts.
+  String get _otherUserName => DisplayNames.instance.nameFor(widget.otherUid);
   String _otherUserPhotoBase64 = '';
   String _otherUserPhone = '';
   String _otherUserCountry = '';
@@ -140,16 +147,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         final name = (val['name'] ?? '') as String;
         final phone = (val['phone'] ?? '') as String;
         setState(() {
-          _otherUserName = name.isNotEmpty ? name : phone;
+          _otherProfileName = name.isNotEmpty ? name : phone;
           _otherUserPhone = phone;
           _otherUserCountry = (val['country'] ?? '') as String;
           _otherUserPhotoBase64 = (val['photoUrl'] ?? '') as String;
         });
       } else {
-        setState(() => _otherUserName = 'Chat');
+        setState(() => _otherProfileName = 'Chat');
       }
     }).catchError((_) {
-      setState(() => _otherUserName = 'Chat');
+      setState(() => _otherProfileName = 'Chat');
     });
   }
 
@@ -295,7 +302,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           ChatSummary(
             chatId: cid,
             otherUid: widget.otherUid,
-            otherName: _otherUserName.isEmpty ? 'Chat' : _otherUserName,
+            otherName: _otherProfileName.isEmpty ? 'Chat' : _otherProfileName,
             otherPhotoUrl: _otherUserPhotoBase64,
             lastMessage: lastMessage,
             lastTimestamp: timestamp,
@@ -1112,7 +1119,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                           ? CrossAxisAlignment.end
                           : CrossAxisAlignment.start,
                       children: [
-                        ReplyQuotePreview(message: message, isMine: isMine),
+                        ReplyQuotePreview(
+                            message: message,
+                            isMine: isMine,
+                            senderLabel: _replySenderLabel(message)),
                         StickerMessageBubble(stickerId: message.stickerId),
                       ],
                     )
@@ -1131,7 +1141,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            ReplyQuotePreview(message: message, isMine: isMine),
+                            ReplyQuotePreview(
+                            message: message,
+                            isMine: isMine,
+                            senderLabel: _replySenderLabel(message)),
                             content,
                           ],
                         ),
@@ -1267,6 +1280,17 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     );
   }
 
+  /// Who a quoted reply came from, under the contact naming rule. Replies
+  /// only record the original sender's own profile name, and a 1:1 chat has
+  /// two people — so it's "You" if that's my name, otherwise the other
+  /// person.
+  String _replySenderLabel(PrivateMessage message) {
+    final name = message.replyToSenderName;
+    if (name.isEmpty) return '';
+    if (name == _currentSenderName) return 'You';
+    return _otherUserName;
+  }
+
   PreferredSizeWidget _chatAppBar() {
     return AppBar(
       backgroundColor: _kBrand,
@@ -1364,6 +1388,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild when a contact sync renames the other person.
+    context.watch<DisplayNames>();
     return Scaffold(
       // Explicit (matches the default) — the body, including the input
       // bar below, resizes correctly above the keyboard this way.
@@ -1398,6 +1424,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             PrivateChatInputBar(
               isUploadingAttachment: _isUploadingAttachment,
               replyingTo: _replyingTo,
+              replyingToName: _replyingTo == null
+                  ? ''
+                  : (_replyingTo!.senderId == _currentUid
+                      ? 'yourself'
+                      : _otherUserName),
               onCancelReply: () => setState(() => _replyingTo = null),
               isRecording: _isRecording,
               isPaused: _isPaused,

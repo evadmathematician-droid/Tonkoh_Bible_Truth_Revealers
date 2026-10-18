@@ -12,6 +12,7 @@ import androidx.core.app.NotificationManagerCompat
 import com.onesignal.notifications.INotificationReceivedEvent
 import com.onesignal.notifications.INotificationServiceExtension
 import com.tbtrapp.MainActivity
+import com.tbtrapp.platform.ContactDisplayNames
 
 /**
  * Wakes the app for an incoming call when it is backgrounded or fully
@@ -46,7 +47,9 @@ class CallNotificationServiceExtension : INotificationServiceExtension {
         val callId = data?.optString("callId").orEmpty()
 
         if (data == null || type != "incoming_call" || callId.isBlank()) {
-            // Not a call push — let OneSignal display it normally.
+            // Not a call push — let OneSignal display it, but with the
+            // sender shown under this phone's contact naming rule.
+            if (data != null) applyContactName(event, data)
             return
         }
 
@@ -63,7 +66,12 @@ class CallNotificationServiceExtension : INotificationServiceExtension {
         }
 
         val ctx = event.context.applicationContext
-        val callerName = data.optString("callerName").ifBlank { "Someone" }
+        val callerId = data.optString("callerId")
+        val callerName = if (callerId.isNotBlank()) {
+            ContactDisplayNames.nameFor(ctx, callerId)
+        } else {
+            data.optString("callerName").ifBlank { "Someone" }
+        }
         val callType = data.optString("callType").ifBlank { "audio" }
 
         try {
@@ -78,6 +86,33 @@ class CallNotificationServiceExtension : INotificationServiceExtension {
             )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to post full-screen call notification", e)
+        }
+    }
+
+    /**
+     * Chat and feed pushes carry the sender's own profile name. Swap it for
+     * the name saved in this phone's contacts, or the bare number:
+     *  - private chat (`senderUid` + `chatId`): the title is the sender;
+     *  - feed message (`type == "audio_message"` + `body`): "name: body".
+     */
+    private fun applyContactName(
+        event: INotificationReceivedEvent,
+        data: org.json.JSONObject,
+    ) {
+        val senderUid = data.optString("senderUid")
+        if (senderUid.isBlank()) return
+        val name = ContactDisplayNames.nameFor(event.context.applicationContext, senderUid)
+        val type = data.optString("type")
+        val body = data.optString("body")
+        try {
+            when {
+                type == "audio_message" && body.isNotBlank() ->
+                    event.notification.setExtender { b -> b.setContentText("$name: $body") }
+                data.optString("chatId").isNotBlank() ->
+                    event.notification.setExtender { b -> b.setContentTitle(name) }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "couldn't apply contact name to push", e)
         }
     }
 
