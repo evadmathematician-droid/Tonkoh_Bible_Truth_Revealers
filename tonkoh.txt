@@ -1,0 +1,254 @@
+===============================================================================
+                    TONKOH APP - PROJECT REPORT
+            Tonkoh Bible Truth Revealers (package: tbtrapp)
+===============================================================================
+Report date : 2026-10-18
+Repository  : E:\APACHE\TonkohApp   (branch: master, working tree clean)
+App version : 3.2.1 (build/version code 24)
+Android ID  : com.tbtrapp
+
+
+-------------------------------------------------------------------------------
+1. OVERVIEW
+-------------------------------------------------------------------------------
+Tonkoh is a Flutter app for the Tonkoh Bible Truth Revealers community. It
+combines three things in one app:
+
+  * A gospel / sermon AUDIO FEED (upload, admin approval, playback,
+    download, sharing)
+  * PRIVATE CHAT between members (text, photos, video, voice notes,
+    reactions, unread counts)
+  * VOICE AND VIDEO CALLS between members (WebRTC, with native Android
+    call screens and push-based ringing)
+
+Android is the main target. The project also has iOS, web, macOS, Windows
+and Linux folders, but calls on Android go through a native Kotlin layer
+that the other platforms don't have.
+
+
+-------------------------------------------------------------------------------
+2. TECHNOLOGY STACK
+-------------------------------------------------------------------------------
+Client
+  - Flutter / Dart (SDK >=3.5.0 <4.0.0), Material 3, seed colour #102A72
+  - State: provider     Navigation: go_router
+  - Native Android layer in Kotlin + Jetpack Compose (calls, audio services,
+    SIM contacts, ringtone)
+
+Backend / services
+  - Firebase Realtime Database (main data store, offline persistence on)
+  - Firebase Anonymous Auth (identity = phone number key + device id)
+  - Firebase Remote Config (force update / maintenance mode)
+  - OneSignal (push notifications for chat, calls, audio feed)
+  - Cloudinary (media uploads, cloud name "dxg9gkeks")
+  - Cloudflare Worker "small-dream-b231" (push relay, TURN credentials,
+    account-migration endpoint)
+  - Cloudflare Realtime TURN (WebRTC NAT traversal)
+
+Key packages
+  flutter_webrtc, just_audio, audio_service, record, video_player,
+  cached_network_image, sqflite, dio, onesignal_flutter, flutter_contacts,
+  phone_numbers_parser, in_app_update, firebase_remote_config, share_plus,
+  permission_handler, flutter_local_notifications, flutter_foreground_task
+
+
+-------------------------------------------------------------------------------
+3. CODE SIZE
+-------------------------------------------------------------------------------
+  Dart (lib/)                     ~17,900 lines in ~100 files
+  Kotlin (android native)          ~4,600 lines in 28 files
+  Cloudflare Worker (JS)             ~920 lines
+  Tests (test/)                      5 files, ~250 lines
+
+  Largest files:
+    lib/screens/chat/private_chat_screen.dart      1,450 lines
+    lib/screens/chat/message_bubbles.dart            650
+    lib/screens/audio/audio_feed_list.dart           631
+    lib/screens/contact_screen.dart                  611
+    OngoingCallService.kt                            540
+
+
+-------------------------------------------------------------------------------
+4. STRUCTURE OF lib/
+-------------------------------------------------------------------------------
+  main.dart            Startup: Firebase, AudioService, RTDB persistence,
+                       OneSignal, call notifications, providers, app shell
+  navigation/          AuthGate (login/profile/device-ownership check),
+                       go_router routes, CallNavigator (global navigator key)
+  force_update/        Remote Config update policy, gate and update screen
+  calls/               WebRTC client, signalling, incoming/ongoing/outgoing
+                       call managers and screens, ringback, missed calls,
+                       bridge to native Android call stack
+  screens/audio/       Audio feed, upload sheet, player, downloader
+  screens/chat/        Private chat screen, input bar, bubbles, push
+  screens/profile/     Profile setup/edit, photo crop, account migration
+  screens/             Contacts, discussions (chat list), feedback, admin,
+                       admin audio approval
+  data/                Models, local SQLite stores (chat, feed, hidden),
+                       contacts repository/cache, migration service
+  services/            Downloads (resumable), media saving, sharing,
+                       voice recorder, voice message bubble
+  cloudinary/          Upload helper
+  util/ widgets/       Phone formatting, chat time, base64 image cache,
+                       waveform, download button
+
+Routes: /audio (home), /contact, /chatList, /privateChat/:otherUid,
+        /feedback, /settings, /admin, /adminApproval, /message (stub -
+        "not yet ported")
+
+
+-------------------------------------------------------------------------------
+5. MAIN FEATURES
+-------------------------------------------------------------------------------
+5.1 Sign-in and profile
+  - Firebase anonymous sign-in; the user's record is stored under
+    users/{phone}. A random per-install device id marks which device owns
+    the account (activeDeviceId). If another device takes over, AuthGate
+    signs the old one out.
+  - Profile setup: name, phone (international picker), country, photo.
+
+5.2 Account migration (moving to a new phone)
+  - Handled by the Worker's /migration-verify endpoint.
+  - If the old device has been offline > 5 minutes, the transfer happens
+    directly. If it was online recently, the user must name at least one
+    real previous chat partner.
+  - Lockout after repeated failures: 1 hour, 24 hours, then 7 days.
+  - Every transfer is written to migrationLog; both devices get an
+    "Account moved" push.
+  - Old message history does NOT transfer (messages live only in each
+    device's local database).
+
+5.3 Audio feed
+  - Members upload sermons/audio (via Cloudinary); an admin approves or
+    rejects them (sermons/pending -> approved / rejected).
+  - Background playback with media notification and lock-screen controls.
+  - Download for offline use, sharing, replies.
+
+5.4 Chat
+  - One-to-one chats with text, images, video, voice notes, reactions.
+  - Local SQLite stores for messages and read positions; RTDB userChats for
+    the chat list and unread counts.
+  - Contacts matched against phone book / SIM contacts.
+
+5.5 Calls
+  - Voice and video via WebRTC, TURN credentials from the Worker.
+  - Android: native Telecom ConnectionService, full-screen incoming call
+    activity, foreground services, OneSignal notification extension to wake
+    the phone for a call.
+  - Other platforms: Flutter call screens driven by an RTDB listener.
+  - Missed-call tracking and call-reliability tips (battery optimisation).
+
+5.6 Admin
+  - Admin area unlocked with a PIN (stored in the app as a SHA-256 hash).
+  - Feedback inbox and audio approval queue.
+
+5.7 Force update and maintenance mode
+  - Remote Config keys: min_version_code, latest_version_code,
+    force_update, update_message, playstore_url, apk_url,
+    maintenance_mode, maintenance_message.
+  - Compares integer version codes; the last policy is cached so it still
+    applies offline. Uses Play in-app IMMEDIATE update, falling back to the
+    Play Store / APK link.
+  - The gate sits above the navigator, so outdated installs can't reach any
+    screen, including call screens opened from notifications.
+
+
+-------------------------------------------------------------------------------
+6. ANDROID CONFIGURATION
+-------------------------------------------------------------------------------
+  - compileSdk/targetSdk from Flutter (comment in main.dart says target 36),
+    Java/Kotlin 17, core library desugaring, edge-to-edge UI.
+  - Release build: R8 minify, obfuscation and resource shrinking ON.
+  - Permissions: internet, network state, camera, microphone, contacts,
+    phone state, notifications, Bluetooth connect, MANAGE_OWN_CALLS, wake
+    lock, vibrate, full-screen intent, ignore battery optimisations, and
+    foreground services (phone call, microphone, camera, media playback).
+  - Cleartext HTTP allowed only for localhost / 127.0.0.1.
+
+
+-------------------------------------------------------------------------------
+7. RECENT WORK (git history, all 2026-10-02)
+-------------------------------------------------------------------------------
+  cfba653  Backup before audit
+  418e7c3  Phase 2: fixed admin /feedback listener leak; base64 photos are
+           decoded once and cached; photos decoded at display size
+  c673d3a  Phase 3: enabled R8; removed 18 unused native libraries (Room,
+           Firestore, Media3, Coil, Gson, ...); trimmed keep rules; Gradle
+           tuned for ~8 GB machines
+  aabddd4  Phase 5: version-code force update with maintenance mode, with
+           unit tests
+
+  Tests present: base64 image cache, chat summary de-duplication, contact
+  matching, force-update policy, and the default widget test.
+  (Tests were not run for this report - Flutter is not on PATH in this
+  shell.)
+
+
+-------------------------------------------------------------------------------
+8. ISSUES AND RISKS FOUND
+-------------------------------------------------------------------------------
+HIGH
+  1. Release build is signed with the DEBUG key
+     (android/app/build.gradle.kts: signingConfig = debug). Google Play
+     will reject it, and debug keys are not unique to you. Set up a real
+     upload keystore before publishing.
+
+  2. Shared Worker secret is hard-coded in the app as
+     "test-relay-secret-123" in 6 places (call_initiator, migration_service,
+     onesignal_push, auth_manager, private_chat_push). Anyone who unpacks
+     the APK can call /send-push, /send-call-push and /migration-verify.
+     At minimum, replace the test value; better, have the Worker check a
+     Firebase ID token instead of a shared secret.
+
+  3. No phone-number verification (no SMS OTP). Accounts are keyed by the
+     phone number the user types, on top of anonymous auth. Security relies
+     on the device-ownership check, the migration rules and the database
+     rules, and the full database rules are NOT in this repository (only
+     cloudflare/firebase_rules_migration.json), so they couldn't be checked.
+
+MEDIUM
+  4. Admin PIN check runs only on the device. The SHA-256 hash of a short
+     numeric PIN can be brute-forced offline in seconds. Admin rights
+     should be enforced in the database rules (e.g. an admins list), not
+     just in the UI.
+  5. The Worker setup notes suggest a legacy Firebase DB secret (full admin
+     access) as one option. Prefer the service-account token, which the
+     current worker_full.js already uses.
+  6. Unfinished items:
+       - /message route is a "not yet ported" stub
+       - TODO: audio-feed push notification (audio_feed_provider.dart:252)
+       - TODO: own profile-photo cache update (auth_manager.dart:263)
+       - lib/calls/ringback_manager.dart is an empty file
+
+LOW / HOUSEKEEPING
+  7. cloudflare/worker_full.txt duplicates worker_full.js (697 lines each).
+     Keep one.
+  8. android/build/reports/problems/problems-report.html (a build output)
+     is committed. Add android/build/ to .gitignore.
+  9. README.md is still the default Flutter template.
+ 10. Branch: work is on "master" while the main branch is "main".
+ 11. private_chat_screen.dart (1,450 lines) is large; splitting it would
+     make it easier to maintain.
+ 12. Several comments refer to the old Kotlin app ("mirrors AuthManager.kt")
+     that isn't in this repo.
+
+
+-------------------------------------------------------------------------------
+9. RECOMMENDED NEXT STEPS
+-------------------------------------------------------------------------------
+  1. Create a release keystore and sign release builds with it.
+  2. Rotate RELAY_SECRET on the Worker and stop shipping it in the app
+     (verify Firebase ID tokens in the Worker instead).
+  3. Add the full Firebase Realtime Database rules to the repo and review
+     them, including admin-only paths (feedback, sermons approval).
+  4. Move the admin check to the server/database rules.
+  5. Finish or remove the stubs and TODOs listed in section 8.
+  6. Run "flutter test" and "flutter analyze", then do the on-device check
+     of calls, push, chat, photo upload and audio playback on a release
+     (R8) build, as noted in build.gradle.kts.
+  7. Tidy up: remove the duplicate worker file and the committed build
+     report, and write a real README.
+
+===============================================================================
+                                END OF REPORT
+===============================================================================

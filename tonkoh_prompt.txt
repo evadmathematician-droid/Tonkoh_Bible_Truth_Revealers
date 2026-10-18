@@ -1,0 +1,157 @@
+You are working on the TBTR app (Tonkoh Bible Truth Revealers) in E:\APACHE\TonkohApp.
+It is a Flutter app (package tbtrapp, Android id com.tbtrapp) with a native Kotlin layer for
+calls and audio. The backend is Firebase Realtime Database + anonymous auth, OneSignal push,
+Cloudinary uploads, and a Cloudflare Worker (push relay, TURN, account migration).
+Users are identified by phone number: users/{phone}. Read tonkoh.txt in the project root first;
+it is the current audit report of the app.
+
+Work in phases. Finish one phase, make sure it builds and the tests pass, then commit it as
+its own commit before starting the next. Work on a new branch, not master. Match the existing
+code style (comments, naming, file layout). Reuse existing code wherever it already does part
+of the job. Do not deploy anything, do not change the Firebase console or the Cloudflare Worker
+in production, and do not rotate live secrets yourself; write down the manual steps for me.
+
+===============================================================================
+PHASE 1 - FIX THE ISSUES FROM THE AUDIT REPORT (tonkoh.txt, section 8)
+===============================================================================
+1. Release signing: release builds use the debug key (android/app/build.gradle.kts).
+   Add a proper release signingConfig that reads from android/key.properties (storeFile,
+   storePassword, keyAlias, keyPassword). Fall back to debug signing only if key.properties
+   is missing, with a clear Gradle warning. Add key.properties and *.jks / *.keystore to
+   .gitignore. Tell me the exact keytool command to create the keystore.
+
+2. Hard-coded Worker secret: "test-relay-secret-123" is copied in 6 Dart files
+   (call_initiator.dart, migration_service.dart, onesignal_push.dart, auth_manager.dart,
+   private_chat_push.dart, web_rtc_client.dart uses the same Worker URL).
+   - Put the Worker base URL in ONE shared config file and use it everywhere.
+   - Replace the shared secret with Firebase authentication: the app sends its Firebase ID
+     token (Authorization: Bearer <token>), and the Worker verifies it (Google public keys,
+     check aud/iss = the Firebase project id, check expiry). Update cloudflare/worker_full.js
+     for /send-push, /send-call-push and /migration-verify. During the transition the Worker
+     may accept EITHER a valid ID token OR the old secret, so old installs keep working;
+     mark the secret path with a comment saying when to remove it.
+   - Write the deployment steps for the Worker as a short section in cloudflare/README_migration.md.
+
+3. Admin access: the admin PIN is only checked on the phone. Add an admins/{phone}: true
+   list in the database and make the admin screens check it. Write the matching database
+   rules (see point 4) so only admins can read /feedback and approve/reject in /sermons.
+   Keep the PIN as a second step if you want, but it must not be the only protection.
+
+4. Database rules: create database.rules.json in the repo covering every path the app uses
+   (users, userChats, privateChats, textMessages, reactions, calls, presence, sermons,
+   feedback, migrationAttempts, migrationLog, admins). Users may only write their own data;
+   chat data only readable by the two people in the chat; migration paths Worker-only.
+   Reference it from firebase.json. Do NOT deploy it - tell me how to test and deploy it.
+
+5. Unfinished code:
+   - Remove the "/message" stub route if nothing uses it (search first).
+   - Implement the TODO in audio_feed_provider.dart:252 (push notification when a new
+     audio is approved), using the existing /send-push relay.
+   - Implement the TODO in auth_manager.dart:263 (update own photo in ProfilePhotoCache).
+   - Delete the empty lib/calls/ringback_manager.dart if nothing imports it, or make it
+     the conditional-import file for ringback_manager_io / _web.
+
+6. Housekeeping: delete cloudflare/worker_full.txt (duplicate of worker_full.js), remove the
+   committed android/build/ report and add android/build/ to .gitignore, and replace the
+   default README.md with a short real one (what the app is, how to build, required secrets).
+
+===============================================================================
+PHASE 2 - AUTOMATIC CONTACT SYNC AND WHATSAPP-STYLE NAMES
+===============================================================================
+Goal: the app behaves like WhatsApp regarding names and numbers.
+
+1. Automatic contact sync. Using the existing contacts code (contacts_repository.dart,
+   contacts_cache.dart, sim_contacts.dart, flutter_contacts), sync the phone's address book
+   automatically:
+   - at app start (after the contacts permission is granted),
+   - when the app comes back to the foreground (at most once every few minutes),
+   - when the phone's contacts change (flutter_contacts has a change listener).
+   Match phone-book numbers against registered users (users/{phone}) using the existing
+   matching logic, and keep the result in the local cache so it works offline.
+   No manual "refresh" should be needed. Do not upload the user's whole address book to
+   the server; only look up numbers.
+
+2. One name rule used everywhere (chat list, chat screen header, audio feed, call screens,
+   incoming-call notification, missed calls):
+   - If the number is saved in MY phone's contacts -> show MY saved contact name.
+   - If it is NOT saved -> show ONLY the phone number in international format
+     (e.g. +232 76 123 456). Do NOT show the person's profile name for unsaved contacts.
+   Put this in one helper (e.g. a DisplayNameResolver) and use it in all those places instead
+   of otherName / senderName / callerName coming from the database. When I save a new contact
+   on my phone, the names in the app must update automatically after the next sync.
+
+3. This applies to the Discussions screen (discussions_screen.dart, which currently shows
+   chat.otherName) and to the header of private_chat_screen.dart.
+
+===============================================================================
+PHASE 3 - AUDIO SCREEN: SEE MEMBERS' NUMBERS AND CONTACT THEM PRIVATELY
+===============================================================================
+The audio screen works like a WhatsApp group. Every member must be able to reach any other
+member who has posted there.
+
+1. In audio_feed_list.dart every post shows the sender's avatar and name (sermon.senderId,
+   sermon.senderName). Show the sender using the Phase 2 name rule: my saved contact name,
+   otherwise the phone number. Make both the avatar and the name tappable.
+
+2. Tapping the avatar or name opens a bottom sheet (extend the existing
+   components/contact_action_sheet.dart rather than writing a new one) with:
+   - The person's photo, the display name, and their full phone number (with a copy button).
+   - "Message privately"   -> opens /privateChat/{phone} (private_chat_screen.dart).
+   - "Voice call"          -> starts an in-app voice call (use the existing start_call.dart /
+                              call_initiator.dart flow).
+   - "Video call"          -> same, video.
+   - "Reply"               -> the existing reply in the feed (ReplyTarget / onReply).
+   - "Save contact"        -> only shown if the number is not saved; opens the phone's
+                              "add contact" screen with the number pre-filled.
+   Do not show the sheet for my own posts (or show only "Reply").
+
+3. Privacy: private messages and calls started from the audio screen are completely
+   private. Nothing is posted to the audio feed, nobody else in the group sees that a
+   private chat or call happened, and no group notification is sent. Only the two people
+   involved see it, exactly like a private chat started from the Contacts screen.
+
+4. The member's phone number shown in the sheet comes from their users/{phone} record.
+   Only signed-in members may read it (enforce this in the Phase 1 database rules).
+
+===============================================================================
+PHASE 4 - RECEIVE SHARES FROM OTHER APPS (TikTok, WhatsApp, YouTube, etc.)
+===============================================================================
+Goal: when I press "Share" in TikTok, WhatsApp, YouTube, Facebook, the gallery or any other
+app, TBTR App appears in the Android share list, and I can send the content into TBTR.
+
+1. Android: add intent filters to the main activity in AndroidManifest.xml for
+   ACTION_SEND and ACTION_SEND_MULTIPLE with mime types text/plain, image/*, video/*,
+   audio/*. Use singleTask/singleTop launch mode so a share does not open a second copy of
+   the app. Handle both cases: app closed (cold start) and app already open.
+   Use a maintained package (e.g. receive_sharing_intent) or handle it in MainActivity.kt
+   through a MethodChannel - pick one and explain why.
+
+2. What is shared:
+   - TikTok and YouTube usually share a LINK (text/plain). Keep the link and show it as a
+     tappable link with a preview (title/thumbnail if easily available) in the chat/feed.
+   - WhatsApp and the gallery share FILES (image, video, audio, voice notes). Copy the file
+     into app storage right away (shared content URIs expire), then upload with the
+     existing Cloudinary upload code.
+
+3. After a share, show a "Share to..." screen where I choose where it goes:
+   - "Post to Audio feed" (goes through the normal admin approval, same as upload_sheet.dart),
+   - or one or more private chats (search list of my chats/contacts, Phase 2 names).
+   Show a preview and allow adding a caption before sending.
+
+4. If I am not signed in / have no profile yet, keep the shared item and continue after
+   setup. Respect the force-update gate.
+
+5. iOS needs a Share Extension for this; do Android only now, but write down what is
+   needed for iOS.
+
+===============================================================================
+WHEN YOU FINISH
+===============================================================================
+- Run flutter analyze and flutter test; add tests for the name resolver (saved vs unsaved
+  number), number matching, and the share-content parsing (link vs file).
+- Give me a short report: what changed per phase, files touched, anything not done and why,
+  and a step-by-step manual test list for my phone (contact sync, names in chats, audio
+  avatar sheet, private message/call from the feed, sharing from TikTok/WhatsApp/YouTube,
+  release build with R8).
+- List every manual step I must do myself (keystore, Worker secrets and deploy, database
+  rules deploy, admins list).
