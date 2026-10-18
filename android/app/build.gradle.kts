@@ -4,10 +4,13 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    // No kotlin-android here (Built-in Kotlin migration). While
+    // android.builtInKotlin=false (Flutter < 3.47), the Flutter Gradle plugin
+    // applies KGP to this module itself; the kotlin { } block below still
+    // configures it.
     id("com.google.gms.google-services")
     id("org.jetbrains.kotlin.plugin.compose")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    // The Flutter Gradle Plugin must be applied after the Android Gradle plugin.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
