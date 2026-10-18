@@ -4,11 +4,13 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../cloudinary/cloudinary_upload.dart';
+import '../../data/display_names.dart';
 import '../../data/feed_item.dart';
 import '../../data/sermon_audio.dart';
 import '../../services/share_service.dart';
 import '../../util/chat_time.dart';
 import '../../widgets/media_download_button.dart';
+import '../components/profile_avatar.dart';
 import 'reply_target.dart';
 import '../audio/global_audio_player.dart';
 
@@ -39,6 +41,13 @@ class AudioFeedList extends StatelessWidget {
   final String? viewingImageUrl;
   final VoidCallback onDismissImage;
 
+  /// This user's id, so their own posts read "You" and aren't tappable.
+  final String? currentUid;
+
+  /// Tapped a member's photo or name: [senderId] is their account id and
+  /// [replyTarget] the post it was tapped on (for the sheet's "Reply").
+  final void Function(String senderId, ReplyTarget replyTarget)? onSenderTap;
+
   const AudioFeedList({
     super.key,
     required this.feedItems,
@@ -61,6 +70,8 @@ class AudioFeedList extends StatelessWidget {
     required this.onJumpToBottom,
     required this.viewingImageUrl,
     required this.onDismissImage,
+    this.currentUid,
+    this.onSenderTap,
   });
 
   static const _emojis = ['❤️', '🙏', '😂', '😮', '😢'];
@@ -132,9 +143,16 @@ class AudioFeedList extends StatelessWidget {
             margin: const EdgeInsets.symmetric(vertical: 4),
             child: Padding(
               padding: const EdgeInsets.all(12),
-              child: item.type == 'audio'
-                  ? _buildMediaItem(item.sermon!)
-                  : _buildTextItem(item),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _senderHeader(context, item),
+                  const SizedBox(height: 6),
+                  item.type == 'audio'
+                      ? _buildMediaItem(item.sermon!)
+                      : _buildTextItem(item),
+                ],
+              ),
             ),
           ),
           if (reactions.isNotEmpty)
@@ -152,6 +170,58 @@ class AudioFeedList extends StatelessWidget {
               ),
             ),
           if (showMenu) _itemMenu(context, item),
+        ],
+      ),
+    );
+  }
+
+  ReplyTarget _replyTargetFor(FeedItem item) => ReplyTarget(
+        id: item.id,
+        type: item.type,
+        preview: item.type != 'audio'
+            ? (item.textMessage?.text ?? '')
+            : (item.sermon?.title ?? 'Audio'),
+      );
+
+  /// Photo + name of whoever posted [item]. Name follows the contact rule
+  /// (saved name, else the number). Tapping it opens the private
+  /// message / call / reply sheet — except on my own posts.
+  Widget _senderHeader(BuildContext context, FeedItem item) {
+    final senderId =
+        item.sermon?.senderId ?? item.textMessage?.senderId ?? '';
+    final isMine = senderId.isNotEmpty && senderId == currentUid;
+    final name = isMine
+        ? 'You'
+        : senderId.isEmpty
+            ? 'Member'
+            : context.watch<DisplayNames>().nameFor(senderId);
+    final tap = (isMine || senderId.isEmpty || onSenderTap == null)
+        ? null
+        : () => onSenderTap!(senderId, _replyTargetFor(item));
+
+    return InkWell(
+      onTap: tap,
+      borderRadius: BorderRadius.circular(20),
+      child: Row(
+        children: [
+          CachedProfileAvatar(
+            uid: senderId,
+            name: isMine ? (item.textMessage?.senderName ?? 'You') : name,
+            size: 32,
+            onTap: tap,
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              name,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: Color(0xFF102A72),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -184,13 +254,7 @@ class AudioFeedList extends StatelessWidget {
             visualDensity: VisualDensity.compact,
             icon: const Icon(Icons.reply, size: 20),
             tooltip: 'Reply',
-            onPressed: () => onReply(ReplyTarget(
-              id: item.id,
-              type: item.type,
-              preview: isText
-                  ? (item.textMessage?.text ?? '')
-                  : (item.sermon?.title ?? 'Audio'),
-            )),
+            onPressed: () => onReply(_replyTargetFor(item)),
           ),
           if (isText)
             IconButton(
@@ -262,9 +326,6 @@ class AudioFeedList extends StatelessWidget {
                 style:
                     const TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),
           ),
-        Text(msg.senderName,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-        const SizedBox(height: 2),
         Text(msg.text),
         const SizedBox(height: 4),
         Text(
@@ -307,20 +368,12 @@ class AudioFeedList extends StatelessWidget {
   }
 }
 
-/// Title + optional sender line shown under a thumbnail, YouTube-style.
+/// Title shown under a thumbnail (the sender is in the card's header).
 Widget _mediaCaption(SermonAudio sermon) {
   return Padding(
     padding: const EdgeInsets.only(top: 8),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(sermon.title.isEmpty ? 'Untitled' : sermon.title,
-            style: const TextStyle(fontWeight: FontWeight.bold)),
-        if (sermon.senderName.isNotEmpty)
-          Text(sermon.senderName,
-              style: const TextStyle(fontSize: 11, color: Colors.grey)),
-      ],
-    ),
+    child: Text(sermon.title.isEmpty ? 'Untitled' : sermon.title,
+        style: const TextStyle(fontWeight: FontWeight.bold)),
   );
 }
 

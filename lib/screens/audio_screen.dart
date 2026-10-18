@@ -1,7 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+
+import '../calls/start_call.dart';
+import '../data/app_contact.dart';
+import '../data/contact_sync_service.dart';
+import '../data/display_names.dart';
+import '../data/profile_photo_cache.dart';
+import 'auth/auth_manager.dart';
+import 'components/contact_action_sheet.dart';
 
 import '../cloudinary/cloudinary_upload.dart';
 import '../screens/audio/audio_feed_provider.dart';
@@ -52,7 +63,7 @@ class _AudioScreenState extends State<AudioScreen> {
         id: sermon.id,
         title: title,
         url: sermon.audioUrl,
-        artist: sermon.senderName,
+        artist: DisplayNames.instance.nameFor(sermon.senderId),
         onComplete: () => _playNextInSequence(sermon.id),
       );
       return;
@@ -69,7 +80,7 @@ class _AudioScreenState extends State<AudioScreen> {
         id: sermon.id,
         title: title,
         filePath: saved.path,
-        artist: sermon.senderName,
+        artist: DisplayNames.instance.nameFor(sermon.senderId),
         onComplete: () => _playNextInSequence(sermon.id),
       );
       return;
@@ -80,7 +91,7 @@ class _AudioScreenState extends State<AudioScreen> {
       id: sermon.id,
       title: title,
       url: sermon.audioUrl,
-      artist: sermon.senderName,
+      artist: DisplayNames.instance.nameFor(sermon.senderId),
       onComplete: () => _playNextInSequence(sermon.id),
     );
   }
@@ -100,7 +111,7 @@ class _AudioScreenState extends State<AudioScreen> {
         id: sermon.id,
         title: sermon.title.isEmpty ? 'Untitled' : sermon.title,
         url: sermon.audioUrl,
-        artist: sermon.senderName,
+        artist: DisplayNames.instance.nameFor(sermon.senderId),
         onComplete: () => _playNextInSequence(sermon.id),
       );
       return;
@@ -114,7 +125,7 @@ class _AudioScreenState extends State<AudioScreen> {
       id: sermon.id,
       title: sermon.title.isEmpty ? 'Untitled' : sermon.title,
       filePath: saved.path,
-      artist: sermon.senderName,
+      artist: DisplayNames.instance.nameFor(sermon.senderId),
       onComplete: () => _playNextInSequence(sermon.id),
     );
   }
@@ -229,6 +240,68 @@ class _AudioScreenState extends State<AudioScreen> {
         title: sermon.title.isEmpty ? 'Video' : sermon.title,
       ),
     ));
+  }
+
+  /// Tapped a member's photo or name in the feed — WhatsApp group style:
+  /// see their number and reach them privately. Nothing here touches the
+  /// feed: a private chat or call is only between the two of us.
+  void _openMemberSheet(String senderId, ReplyTarget replyTarget) {
+    final names = DisplayNames.instance;
+    final contact = AppContact(
+      name: names.nameFor(senderId),
+      phone: senderId,
+      uid: senderId,
+      photoUrl: ProfilePhotoCache.instance.photoFor(senderId),
+      source: 'FEED',
+    );
+    showContactActionSheet(
+      context: context,
+      contact: contact,
+      messageLabel: 'Message privately',
+      onMessage: (c) => context.push('/privateChat/${c.uid}'),
+      onVoiceCall: (c) => _callMember(c, 'audio'),
+      onVideoCall: (c) => _callMember(c, 'video'),
+      onReply: () => setState(() => _replyTarget = replyTarget),
+      onSaveContact: names.isSaved(senderId) ? null : _saveMemberContact,
+    );
+  }
+
+  Future<void> _callMember(AppContact member, String callType) async {
+    final me = await AuthManager.getCachedProfile();
+    if (!mounted) return;
+    if (me == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Finishing sign-in — try again in a moment.')),
+      );
+      return;
+    }
+    await startPrivateAppCall(
+      context: context,
+      caller: me,
+      calleeUid: member.uid!,
+      calleeName: member.name,
+      callType: callType,
+    );
+  }
+
+  /// Opens the phone's own "new contact" screen with the number filled in;
+  /// the contact sync picks the new name up as soon as it's saved.
+  Future<void> _saveMemberContact(AppContact member) async {
+    try {
+      await FlutterContacts.openExternalInsert(
+        Contact(phones: [Phone(member.phone)]),
+      );
+    } catch (e) {
+      debugPrint('AudioScreen: openExternalInsert failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Couldn't open your contacts app.")),
+        );
+      }
+      return;
+    }
+    unawaited(ContactSyncService.instance.sync());
   }
 
   void _sendTextMessage() async {
@@ -414,6 +487,8 @@ class _AudioScreenState extends State<AudioScreen> {
                 onJumpToBottom: _scrollToBottomAndMarkRead,
                 viewingImageUrl: _viewingImageUrl,
                 onDismissImage: () => setState(() => _viewingImageUrl = null),
+                currentUid: feed.currentUid,
+                onSenderTap: _openMemberSheet,
               ),
             ),
             // Composer — last child of the body Column so `resizeToAvoidBottom
