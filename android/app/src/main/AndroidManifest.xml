@@ -42,11 +42,18 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
     <uses-feature android:name="android.hardware.wifi" android:required="false"/>
 
+    <!-- allowBackup=false: an Android backup restored onto a new phone
+         would carry this install's device id and cached profile, so two
+         phones would both look like the account's active device, and the
+         new one couldn't write the account (database.rules.json ties it to
+         the old Firebase login). A new phone goes through the in-app
+         account transfer instead. -->
     <application
         android:label="Tonkoh App"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:networkSecurityConfig="@xml/network_security_config"
+        android:allowBackup="false"
         android:supportsRtl="true">
         <activity
             android:name=".MainActivity"

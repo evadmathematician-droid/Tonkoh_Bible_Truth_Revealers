@@ -1,5 +1,7 @@
 @file:Suppress("DEPRECATION")
 
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -8,6 +10,19 @@ plugins {
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Release signing reads android/key.properties (git-ignored):
+//   storeFile=<path to the .jks, relative to android/app>
+//   storePassword=...
+//   keyAlias=...
+//   keyPassword=...
+// Without it, release builds fall back to the debug key so local builds keep
+// working — but Google Play rejects debug-signed bundles.
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("key.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val hasReleaseKeystore = keystoreProperties.getProperty("storeFile") != null
 
 android {
     namespace = "com.tbtrapp"
@@ -33,9 +48,28 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                logger.warn(
+                    "WARNING: android/key.properties not found — release build " +
+                        "is signed with the DEBUG key and cannot be uploaded to Play."
+                )
+                signingConfigs.getByName("debug")
+            }
 
             // R8 shrinking, optimization and obfuscation (Google Play's DEX
             // optimization requirement). A missing keep rule only shows up

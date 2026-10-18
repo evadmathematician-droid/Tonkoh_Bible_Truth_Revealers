@@ -4,31 +4,53 @@ The Flutter app (`lib/data/migration_service.dart`) calls
 `POST https://<your-worker>/migration-verify`. Until this is deployed (or if it
 errors) the in-app transfer flow shows "Transfer is temporarily unavailable".
 
+## 0. Security update rollout (do these in order)
+
+This release moves the Worker from a shared secret (shipped inside the app)
+to Firebase ID tokens, and adds real database rules. Order matters — doing
+step 4 before everyone has updated would lock old installs out of chats.
+
+1. **Ship the new app build** (it sends `Authorization: Bearer <ID token>`
+   *and* the old secret, and links each account to its login on launch).
+2. **Deploy the new Worker** (`cloudflare/worker_full.js`, see section 1).
+   Old and new builds both keep working.
+3. **Add the admins list** in the Firebase console: Realtime Database →
+   Data → add `admins/<your E.164 phone>: true` for each admin (e.g.
+   `admins/+23276123456: true`). The admin screen now needs this as well as
+   the PIN.
+4. **Force everyone onto the new build**: in Remote Config set
+   `min_version_code` to this build's version code and `force_update` to
+   `true`. Wait a few days so active members open the app (that's when
+   their account gets linked).
+5. **Deploy the database rules**: `firebase deploy --only database`
+   (test first: `firebase emulators:exec --only database --project demo-tbtr
+   "node firebase_tests/database_rules.test.mjs"`).
+6. **Retire the old secret**: `wrangler secret put ALLOW_LEGACY_SECRET` →
+   `false` (or rotate `RELAY_SECRET`), then remove
+   `WorkerApi.legacySecret` from `lib/config/worker_api.dart` in a later build.
+
 ## 1. Worker
 
-`migration_worker.js` is a **drop-in replacement for the migration section of
-your existing full-replacement Worker** — replace your `// Migration helpers`
-block through the end of `handleMigrationVerify(...)` with it. Keep the rest
-(the `json()` helper, `dbGet`/`dbSet`/`dbPatch`, the TURN / `/send-push` /
-`/send-call-push` routes, and the `if (url.pathname === "/migration-verify")
-return handleMigrationVerify(request, env);` line) as-is.
+`worker_full.js` is the complete Worker — paste the whole file
+(`migration_worker.js` is superseded and kept only for history).
 
-### Env / secrets (must be set — `wrangler secret put ...`)
+### Env / secrets (`wrangler secret put ...`)
 
 | name | value |
 |---|---|
-| `RELAY_SECRET` | same shared secret `/send-push` checks — must equal `_secret` in `lib/data/migration_service.dart` (currently `test-relay-secret-123`) |
-| `FIREBASE_DB_URL` | `https://tonkoh-bible-truth-revea-a7694-default-rtdb.firebaseio.com` — **NEW, referenced by your `dbGet`/`dbSet`/`dbPatch`** |
-| `FIREBASE_DB_SECRET` | Realtime Database access token — a **legacy DB secret** (grants admin, bypasses rules) is simplest; or a service-account OAuth token (then swap `?auth=` → `?access_token=`). **NEW.** |
-| `ONESIGNAL_APP_ID` / `ONESIGNAL_REST_API_KEY` | already used by your other routes |
+| `FIREBASE_DB_URL` | `https://tonkoh-bible-truth-revea-a7694-default-rtdb.firebaseio.com` |
+| `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY` | from a Firebase service-account JSON (prefer this over a legacy DB secret, which grants full admin) |
+| `ONESIGNAL_APP_ID` / `ONESIGNAL_REST_API_KEY` | OneSignal |
+| `TURN_TOKEN_ID` / `TURN_API_TOKEN` | Cloudflare Realtime TURN |
+| `RELAY_SECRET` | legacy shared secret — only for builds older than this release |
+| `ALLOW_LEGACY_SECRET` | optional; `false` turns the legacy secret off (step 6) |
+| `FIREBASE_PROJECT_ID` | optional; defaults to `tonkoh-bible-truth-revea-a7694` |
 
 ## 2. Firebase rules
 
-Merge `firebase_rules_migration.json` into the database rules:
-`migrationAttempts` must be `.read: true`, `.write: false` so only the Worker
-(via its token) can touch the counter. Also add `migrationLog` as
-`.read: false, .write: false` (the Worker's service-account token bypasses
-rules) — it holds the transfer audit trail.
+All rules live in `database.rules.json` at the repo root (it already
+includes `migrationAttempts` read-only and `migrationLog` closed — the
+Worker's service-account token bypasses rules).
 
 ## 2a. Conditional verification (presence gate)
 

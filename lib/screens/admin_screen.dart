@@ -234,7 +234,33 @@ class _AdminPinGate extends StatefulWidget {
 
 class _AdminPinGateState extends State<_AdminPinGate> {
   final _pinController = TextEditingController();
-  bool _showError = false;
+  String? _error;
+  bool _checking = false;
+
+  // The PIN alone is checked on this phone only, so it's a second step:
+  // the account must also be on the server's admins/{phone} list, which is
+  // what the database rules actually enforce.
+  Future<void> _unlock() async {
+    if (!AuthManager.isAdminPinCorrect(_pinController.text)) {
+      setState(() {
+        _error = 'Incorrect PIN';
+        _pinController.clear();
+      });
+      return;
+    }
+    setState(() => _checking = true);
+    final isAdmin = await AuthManager.isServerAdmin();
+    if (!mounted) return;
+    setState(() => _checking = false);
+    if (isAdmin) {
+      widget.onUnlock();
+    } else {
+      setState(() {
+        _error = 'This account is not on the admin list';
+        _pinController.clear();
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -274,11 +300,11 @@ class _AdminPinGateState extends State<_AdminPinGate> {
                     obscureText: true,
                     keyboardType: TextInputType.number,
                     maxLength: 4,
-                    onChanged: (_) => setState(() => _showError = false),
+                    onChanged: (_) => setState(() => _error = null),
                     decoration: InputDecoration(
                       labelText: 'PIN',
                       counterText: '',
-                      errorText: _showError ? 'Incorrect PIN' : null,
+                      errorText: _error,
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                     ),
                   ),
@@ -287,21 +313,18 @@ class _AdminPinGateState extends State<_AdminPinGate> {
                     width: double.infinity,
                     height: 52,
                     child: ElevatedButton(
-                      onPressed: () {
-                        if (AuthManager.isAdminPinCorrect(_pinController.text)) {
-                          widget.onUnlock();
-                        } else {
-                          setState(() {
-                            _showError = true;
-                            _pinController.clear();
-                          });
-                        }
-                      },
+                      onPressed: _checking ? null : _unlock,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF2E5BFF),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       ),
-                      child: const Text('Unlock', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                      child: _checking
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Text('Unlock', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
                     ),
                   ),
                 ],

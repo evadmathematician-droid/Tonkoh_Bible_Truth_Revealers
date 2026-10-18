@@ -3,6 +3,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:just_audio/just_audio.dart';
 import 'dart:async';
 
+import 'audio/onesignal_push.dart';
 
 
 class AdminAudioApprovalScreen extends StatefulWidget {
@@ -112,6 +113,23 @@ class _AdminAudioApprovalScreenState extends State<AdminAudioApprovalScreen> {
 
     await db.child('approved').child(sermonId).set(data);
     await db.child('pending').child(sermonId).remove();
+
+    // Tell everyone the new post is live — the uploader's own push went
+    // nowhere while it sat in the approval queue.
+    final kind = switch (data['mediaType']) {
+      'IMAGE' => 'a photo',
+      'VIDEO' => 'a video',
+      _ => 'a new audio',
+    };
+    final title = (data['title'] as String? ?? '').trim();
+    unawaited(sendAudioPushNotification(
+      heading: 'New in TBTR',
+      senderName: (data['senderName'] as String? ?? '').trim().isEmpty
+          ? 'TBTR'
+          : data['senderName'] as String,
+      messageBody: title.isEmpty ? 'shared $kind' : title,
+      senderUid: data['senderId'] as String? ?? '',
+    ));
   }
 
   Future<void> _reject(String sermonId) async {

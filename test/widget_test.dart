@@ -1,14 +1,17 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:tbtrapp/main.dart';
+import 'package:tbtrapp/navigation/app_router.dart';
 
+// The full app can't boot in a widget test (Firebase, OneSignal and the
+// audio service need a device), so this smoke-tests a standalone screen.
 void main() {
-  testWidgets('App boots without crashing', (WidgetTester tester) async {
-    await tester.pumpWidget(const TBTRApp());
-    await tester.pump();
+  testWidgets('Coming-soon screen shows its label', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: ComingSoonScreen('Bible Facts')),
+    );
 
-    // Replace with something that actually exists in your app,
-    // e.g. the app bar title:
-    expect(find.text('TONKOH  BIBLE  TRUTH  REVEALERS'), findsOneWidget);
+    expect(find.text('Bible Facts'), findsOneWidget);
+    expect(find.text('Bible Facts is coming soon.'), findsOneWidget);
   });
 }

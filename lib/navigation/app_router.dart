@@ -12,15 +12,24 @@ import '../screens/admin_screen.dart';
 
 // ...inside routes:
 
-class _StubScreen extends StatelessWidget {
+class ComingSoonScreen extends StatelessWidget {
   final String label;
-  const _StubScreen(this.label);
+  const ComingSoonScreen(this.label, {super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(label)),
-      body: Center(child: Text('$label — not yet ported')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            '$label is coming soon.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -38,7 +47,7 @@ class MainNavHost extends StatelessWidget {
       routes: [
         GoRoute(path: '/contact', builder: (c, s) => const ContactScreen()),
         GoRoute(path: '/audio', builder: (c, s) => const AudioScreen()),
-        GoRoute(path: '/message', builder: (c, s) => const _StubScreen('Message')),
+        GoRoute(path: '/message', builder: (c, s) => const ComingSoonScreen('Bible Facts')),
         GoRoute(path: '/feedback', builder: (c, s) => const FeedbackScreen()),
         GoRoute(path: '/chatList', builder: (c, s) => const DiscussionsScreen()),
         GoRoute(path: '/admin', builder: (c, s) => const AdminScreen()),

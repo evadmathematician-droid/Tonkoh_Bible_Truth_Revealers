@@ -1,4 +1,8 @@
 // =====================================================================
+// SUPERSEDED — cloudflare/worker_full.js is the deployed Worker and already
+// contains this migration section (plus Firebase ID-token auth). Kept for
+// history only; do not paste this over worker_full.js.
+//
 // DROP-IN REPLACEMENT for the migration section of your Worker.
 //
 // In your "full replacement" Worker, replace EVERYTHING from

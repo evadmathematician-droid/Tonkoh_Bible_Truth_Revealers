@@ -1,0 +1,113 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "users": {
+      ".read": "auth != null",
+      "$phone": {
+        ".write": "auth != null && (!data.exists() || !data.child('authUid').exists() || data.child('authUid').val() === auth.uid) && (!newData.exists() || !newData.child('authUid').exists() || newData.child('authUid').val() === auth.uid)"
+      }
+    },
+
+    "authIndex": {
+      "$authUid": {
+        ".read": "auth != null && auth.uid === $authUid",
+        ".write": "auth != null && auth.uid === $authUid && (!newData.exists() || root.child('users').child(newData.val() + '').child('authUid').val() === auth.uid)",
+        ".validate": "newData.isString()"
+      }
+    },
+
+    "admins": {
+      ".read": "auth != null",
+      ".write": false
+    },
+
+    "presence": {
+      ".read": "auth != null",
+      "$phone": {
+        ".write": "auth != null && root.child('authIndex').child(auth.uid).val() === $phone && root.child('users').child($phone).child('authUid').val() === auth.uid"
+      }
+    },
+
+    "userChats": {
+      "$owner": {
+        ".read": "auth != null && root.child('authIndex').child(auth.uid).val() === $owner && root.child('users').child($owner).child('authUid').val() === auth.uid",
+        "$cid": {
+          ".read": "auth != null && root.child('users').child(root.child('authIndex').child(auth.uid).val() + '').child('authUid').val() === auth.uid && ($cid.beginsWith(root.child('authIndex').child(auth.uid).val() + '_') || $cid.endsWith('_' + root.child('authIndex').child(auth.uid).val()))",
+          ".write": "auth != null && root.child('users').child(root.child('authIndex').child(auth.uid).val() + '').child('authUid').val() === auth.uid && ($cid.beginsWith(root.child('authIndex').child(auth.uid).val() + '_') || $cid.endsWith('_' + root.child('authIndex').child(auth.uid).val())) && ($cid.beginsWith($owner + '_') || $cid.endsWith('_' + $owner))"
+        }
+      }
+    },
+
+    "privateChats": {
+      "$cid": {
+        ".read": "auth != null && root.child('users').child(root.child('authIndex').child(auth.uid).val() + '').child('authUid').val() === auth.uid && ($cid.beginsWith(root.child('authIndex').child(auth.uid).val() + '_') || $cid.endsWith('_' + root.child('authIndex').child(auth.uid).val()))",
+        ".write": "auth != null && root.child('users').child(root.child('authIndex').child(auth.uid).val() + '').child('authUid').val() === auth.uid && ($cid.beginsWith(root.child('authIndex').child(auth.uid).val() + '_') || $cid.endsWith('_' + root.child('authIndex').child(auth.uid).val()))"
+      }
+    },
+
+    "calls": {
+      ".indexOn": ["calleeId"],
+      ".read": "auth != null && query.orderByChild === 'calleeId' && query.equalTo === root.child('authIndex').child(auth.uid).val() && root.child('users').child(query.equalTo + '').child('authUid').val() === auth.uid",
+      "$callId": {
+        ".read": "auth != null && root.child('users').child(root.child('authIndex').child(auth.uid).val() + '').child('authUid').val() === auth.uid && (data.child('callerId').val() === root.child('authIndex').child(auth.uid).val() || data.child('calleeId').val() === root.child('authIndex').child(auth.uid).val())",
+        ".write": "auth != null && root.child('users').child(root.child('authIndex').child(auth.uid).val() + '').child('authUid').val() === auth.uid && (data.child('callerId').val() === root.child('authIndex').child(auth.uid).val() || data.child('calleeId').val() === root.child('authIndex').child(auth.uid).val() || (!data.exists() && newData.child('callerId').val() === root.child('authIndex').child(auth.uid).val()))"
+      }
+    },
+
+    "sermons": {
+      ".read": "auth != null",
+      "approved": {
+        ".indexOn": ["timestamp"],
+        "$id": {
+          ".write": "auth != null && root.child('admins').child(root.child('authIndex').child(auth.uid).val() + '').val() === true && root.child('users').child(root.child('authIndex').child(auth.uid).val() + '').child('authUid').val() === auth.uid"
+        }
+      },
+      "rejected": {
+        "$id": {
+          ".write": "auth != null && root.child('admins').child(root.child('authIndex').child(auth.uid).val() + '').val() === true && root.child('users').child(root.child('authIndex').child(auth.uid).val() + '').child('authUid').val() === auth.uid"
+        }
+      },
+      "pending": {
+        "$id": {
+          ".write": "auth != null && ((!data.exists() && newData.child('senderId').val() === root.child('authIndex').child(auth.uid).val()) || (root.child('admins').child(root.child('authIndex').child(auth.uid).val() + '').val() === true && root.child('users').child(root.child('authIndex').child(auth.uid).val() + '').child('authUid').val() === auth.uid))"
+        }
+      }
+    },
+
+    "textMessages": {
+      ".read": "auth != null",
+      ".indexOn": ["timestamp"],
+      "$id": {
+        ".write": "auth != null && root.child('users').child(root.child('authIndex').child(auth.uid).val() + '').child('authUid').val() === auth.uid && ((!data.exists() && newData.child('senderId').val() === root.child('authIndex').child(auth.uid).val()) || data.child('senderId').val() === root.child('authIndex').child(auth.uid).val() || root.child('admins').child(root.child('authIndex').child(auth.uid).val() + '').val() === true)"
+      }
+    },
+
+    "reactions": {
+      ".read": "auth != null",
+      "$itemId": {
+        ".write": "auth != null"
+      }
+    },
+
+    "feedback": {
+      ".read": "auth != null && root.child('admins').child(root.child('authIndex').child(auth.uid).val() + '').val() === true && root.child('users').child(root.child('authIndex').child(auth.uid).val() + '').child('authUid').val() === auth.uid",
+      "$id": {
+        ".write": "auth != null && (!data.exists() || (root.child('admins').child(root.child('authIndex').child(auth.uid).val() + '').val() === true && root.child('users').child(root.child('authIndex').child(auth.uid).val() + '').child('authUid').val() === auth.uid))"
+      }
+    },
+
+    "migrationAttempts": {
+      "$claimedPhone": {
+        ".read": true,
+        ".write": false
+      }
+    },
+
+    "migrationLog": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}

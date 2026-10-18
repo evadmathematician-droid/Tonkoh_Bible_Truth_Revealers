@@ -249,9 +249,8 @@ class AudioFeedProvider extends ChangeNotifier {
         senderPhone: currentSenderPhone,
       ).toMap(),
     );
-    // TODO (6b/6d): sendAudioPushNotification equivalent — OneSignal REST
-    // call, ported alongside upload/push step so the API key handling
-    // gets proper treatment in one place instead of scattered across files.
+    // The broadcast push for this message is sent by the caller
+    // (AudioScreen._sendTextMessage → sendAudioPushNotification).
   }
 
   Future<void> markReadUpTo(int timestamp) async {

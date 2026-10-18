@@ -1,15 +1,12 @@
 import 'package:dio/dio.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
+import '../config/worker_api.dart';
 import 'platform_call_support.dart';
 
 class CallInitiator {
   final FirebaseDatabase _db = FirebaseDatabase.instance;
   final Dio _dio = Dio();
-
-  static const String _pushRelayUrl =
-      'https://small-dream-b231.tonkohbibletruthrevealers.workers.dev/send-call-push';
-  static const String _pushRelaySecret = 'test-relay-secret-123';
 
   // ── Idempotency guard (duplicate-dial bug) ───────────────────────────────
   // A single tap on a call button occasionally reaches [initiateCall] twice
@@ -97,7 +94,7 @@ class CallInitiator {
       }
 
       final body = <String, dynamic>{
-        'secret': _pushRelaySecret,
+        'secret': WorkerApi.legacySecret,
         'oneSignalId': subId,
         'callId': callData['callId'],
         'callerId': callData['callerId'],
@@ -108,10 +105,10 @@ class CallInitiator {
       };
 
       final response = await _dio.post(
-        _pushRelayUrl,
+        WorkerApi.sendCallPushUrl,
         data: body,
         options: Options(
-          headers: {'Content-Type': 'application/json; charset=utf-8'},
+          headers: await WorkerApi.headers(),
           validateStatus: (s) => s != null && s < 500,
         ),
       );

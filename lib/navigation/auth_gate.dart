@@ -140,6 +140,7 @@ class _AuthGateState extends State<AuthGate> {
       if (eventId == myDeviceId) {
         // Firebase agrees this is the active device — stop second-guessing.
         await AuthManager.clearClaimMarker();
+        unawaited(AuthManager.linkAuthUid(uid));
         return;
       }
 
@@ -162,6 +163,7 @@ class _AuthGateState extends State<AuthGate> {
       final effective = serverId ?? eventId;
       if (effective == myDeviceId) {
         await AuthManager.clearClaimMarker();
+        unawaited(AuthManager.linkAuthUid(uid));
         return; // stale cache — we are still the active device
       }
       if (recentlyClaimed) {

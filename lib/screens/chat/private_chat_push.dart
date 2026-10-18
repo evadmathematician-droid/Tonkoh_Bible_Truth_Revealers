@@ -3,15 +3,14 @@ import 'dart:convert';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:http/http.dart' as http;
 
-// Relayed through the Cloudflare Worker (same one CallSignaling.kt /
-// InitiateCall.kt already use for /send-call-push) instead of embedding the
+import '../../config/worker_api.dart';
+
+// Relayed through the Cloudflare Worker (same one call_initiator.dart uses for
+// /send-call-push) instead of embedding the
 // OneSignal REST API key in client code — that key must never ship in a
 // build a user can inspect (this matters even more on Flutter web, where
-// it'd sit in plain text in the compiled JS). Only this low-value shared
-// secret ships client-side.
-const String _pushRelayUrl =
-    'https://small-dream-b231.tonkohbibletruthrevealers.workers.dev/send-push';
-const String _pushRelaySecret = 'test-relay-secret-123'; // must match RELAY_SECRET set in the Worker
+// it'd sit in plain text in the compiled JS). The Worker authorises the
+// call by the sender's Firebase ID token (WorkerApi.headers).
 
 /// Mirrors Kotlin's sendPushNotification(): looks up the recipient's
 /// OneSignal player id from `users/{otherUid}/oneSignalId`, then relays the
@@ -34,10 +33,10 @@ Future<void> sendPrivateChatPushNotification({
     }
 
     await http.post(
-      Uri.parse(_pushRelayUrl),
-      headers: {'Content-Type': 'application/json'},
+      Uri.parse(WorkerApi.sendPushUrl),
+      headers: await WorkerApi.headers(),
       body: jsonEncode({
-        'secret': _pushRelaySecret,
+        'secret': WorkerApi.legacySecret,
         'subscriptionIds': [playerId],
         'heading': senderName,
         'content': messageBody,

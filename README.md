@@ -1,17 +1,64 @@
-# tbtrapp
+# TBTR App — Tonkoh Bible Truth Revealers
 
-A new Flutter project.
+Flutter app for the Tonkoh Bible Truth Revealers community: a shared gospel
+audio feed, private chat, and voice/video calls between members.
 
-## Getting Started
+- **Android** is the main target (native Kotlin layer for calls, audio
+  services and SIM contacts under `android/app/src/main/kotlin`).
+- **Backend:** Firebase Realtime Database + anonymous Auth + Remote Config,
+  OneSignal push, Cloudinary media, and a Cloudflare Worker
+  (`cloudflare/worker_full.js`) for push relay, TURN credentials and account
+  transfer.
 
-This project is a starting point for a Flutter application.
+## Build
 
-A few resources to get you started if this is your first Flutter project:
+```sh
+flutter pub get
+flutter analyze
+flutter test
+flutter build appbundle --release
+```
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+### Release signing
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Create an upload keystore once (keep it and its passwords safe — losing it
+means you can't update the app on Play):
+
+```sh
+keytool -genkey -v -keystore android/app/upload-keystore.jks -keyalg RSA \
+  -keysize 2048 -validity 10000 -alias upload
+```
+
+Then create `android/key.properties` (git-ignored):
+
+```properties
+storeFile=upload-keystore.jks
+storePassword=...
+keyAlias=upload
+keyPassword=...
+```
+
+Without it, release builds fall back to the debug key and Play will reject
+them (Gradle prints a warning).
+
+## Database rules
+
+`database.rules.json` holds the Realtime Database rules (accounts are tied to
+the owning Firebase login via `users/{phone}/authUid` ⇄ `authIndex/{authUid}`;
+admins are listed under `admins/{phone}: true`). Test them locally — never
+against the live database:
+
+```sh
+firebase emulators:exec --only database --project demo-tbtr \
+  "node firebase_tests/database_rules.test.mjs"
+```
+
+(The emulator needs Java; Android Studio ships one in `<Android Studio>/jbr`.)
+
+Deploy with `firebase deploy --only database` — see the rollout order in
+`cloudflare/README_migration.md` first.
+
+## Cloudflare Worker
+
+`cloudflare/worker_full.js` is the whole Worker. Secrets and deploy steps are
+listed at the top of the file and in `cloudflare/README_migration.md`.

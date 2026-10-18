@@ -4,13 +4,13 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../calls/call_models.dart';
+import '../config/worker_api.dart';
 
 
 
 class WebRtcClient {
   static const String _tag = 'WebRtcClient';
-  static const String _turnCredsEndpoint =
-      'https://small-dream-b231.tonkohbibletruthrevealers.workers.dev';
+  static const String _turnCredsEndpoint = WorkerApi.turnCredentialsUrl;
 
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;

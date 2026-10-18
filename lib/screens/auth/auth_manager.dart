@@ -5,11 +5,14 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../config/worker_api.dart';
+import '../../data/profile_photo_cache.dart';
 import '../../data/user_profile.dart';
 import '../../util/phone_utils.dart';
 
@@ -109,6 +112,66 @@ class AuthManager {
       }
     } catch (e) {
       onError(e.toString());
+    }
+  }
+
+  // ── Auth link (users/{phone}/authUid ⇄ authIndex/{authUid}) ─────────────
+  // Accounts are keyed by phone number but signed in anonymously, so the
+  // database rules can't tell who owns users/{phone} from auth.uid alone.
+  // The owner's auth uid is stored on the record and indexed back to the
+  // phone; database.rules.json checks both directions.
+
+  static bool _authLinkChecked = false;
+
+  static Future<void> _writeAuthIndex(String phone) async {
+    final authUid = _auth.currentUser?.uid;
+    if (authUid == null) return;
+    try {
+      await FirebaseDatabase.instance.ref('authIndex/$authUid').set(phone);
+    } catch (e) {
+      debugPrint('AuthManager: authIndex write failed: $e');
+    }
+  }
+
+  /// Fills in users/{phone}/authUid for records saved before the field
+  /// existed (or reset by an account migration), and keeps the authIndex
+  /// entry present. Call once this device is confirmed as the account's
+  /// active device. Best-effort and runs once per launch.
+  static Future<void> linkAuthUid(String phone) async {
+    if (_authLinkChecked) return;
+    final authUid = _auth.currentUser?.uid;
+    if (authUid == null || phone.isEmpty) return;
+    _authLinkChecked = true;
+    try {
+      final ref = _usersRef.child(phone).child('authUid');
+      final current = (await ref.get()).value as String?;
+      if (current == null || current.isEmpty) {
+        await ref.set(authUid);
+      } else if (current != authUid) {
+        // Owned by another login (e.g. app data restored onto a new
+        // install). Only an account migration can move it.
+        debugPrint('AuthManager: account $phone is linked to another login');
+        return;
+      }
+      await _writeAuthIndex(phone);
+    } catch (e) {
+      _authLinkChecked = false;
+      debugPrint('AuthManager: linkAuthUid failed: $e');
+    }
+  }
+
+  /// Server-side admin check: admins/{phone} == true. The PIN on the admin
+  /// screen is only a second step; the database rules enforce this list.
+  static Future<bool> isServerAdmin() async {
+    final profile = await getCachedProfile();
+    if (profile == null || profile.uid.isEmpty) return false;
+    try {
+      final snap =
+          await FirebaseDatabase.instance.ref('admins/${profile.uid}').get();
+      return snap.value == true;
+    } catch (e) {
+      debugPrint('AuthManager: admin check failed: $e');
+      return false;
     }
   }
 
@@ -254,14 +317,18 @@ class AuthManager {
         createdAt: finalCreatedAt,
         // Claims this phone number for THIS device — see deviceId() doc.
         activeDeviceId: thisDeviceId,
+        authUid: _auth.currentUser?.uid ?? existing?.authUid ?? '',
       );
 
       await _usersRef.child(e164Phone).set(profile.toMap());
+      await _writeAuthIndex(e164Phone);
       await _cacheProfileLocally(profile);
       await markThisDeviceClaimed(e164Phone);
 
-      // TODO: ProfilePhotoCache.updateOwn equivalent — stubbed for now,
-      // low-risk, we'll build it properly alongside the profile screen.
+      // Our own avatar is drawn from ProfilePhotoCache like everyone
+      // else's, so refresh it now rather than showing the old photo until
+      // the next fetch.
+      ProfilePhotoCache.instance.updateCached(e164Phone, finalPhotoUrl);
 
       final playerId = OneSignal.User.pushSubscription.id;
       if (playerId != null) {
@@ -311,6 +378,10 @@ class AuthManager {
   }) async {
     try {
       await _usersRef.child(phoneKey).remove();
+      final authUid = _auth.currentUser?.uid;
+      if (authUid != null) {
+        await FirebaseDatabase.instance.ref('authIndex/$authUid').remove();
+      }
       await clearCachedProfile();
       onSuccess();
     } catch (e) {
@@ -320,10 +391,6 @@ class AuthManager {
 
   // Same Cloudflare Worker relay the call/chat pushes use — keeps the
   // OneSignal REST key server-side. See private_chat_push.dart.
-  static const String _pushRelayUrl =
-      'https://small-dream-b231.tonkohbibletruthrevealers.workers.dev/send-push';
-  static const String _pushRelaySecret = 'test-relay-secret-123';
-
   /// Best-effort security alert to the device(s) currently registered to
   /// [phoneKey] when someone tries to register that number as a new
   /// account elsewhere.
@@ -334,10 +401,10 @@ class AuthManager {
       if (playerId == null || playerId.isEmpty) return;
 
       await http.post(
-        Uri.parse(_pushRelayUrl),
-        headers: {'Content-Type': 'application/json'},
+        Uri.parse(WorkerApi.sendPushUrl),
+        headers: await WorkerApi.headers(),
         body: jsonEncode({
-          'secret': _pushRelaySecret,
+          'secret': WorkerApi.legacySecret,
           'subscriptionIds': [playerId],
           'heading': 'Security alert',
           'content':

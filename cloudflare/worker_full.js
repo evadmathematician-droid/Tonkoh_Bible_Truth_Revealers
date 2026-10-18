@@ -4,6 +4,12 @@
 // (Google OAuth2 JWT Bearer flow).
 //
 // Updates in this version:
+//   * Callers are authorised by their Firebase ID token
+//     (Authorization: Bearer ...) on /send-push, /send-call-push and
+//     /migration-verify. The old body `secret` is still accepted while
+//     ALLOW_LEGACY_SECRET is not "false" (transition for older builds).
+//   * /migration-verify moves users/{phone}/authUid + authIndex to the new
+//     device's Firebase uid (database.rules.json relies on this link).
 //   * migration verify: pass if AT LEAST ONE submitted number matches a
 //     real prior chat partner (was: all must match). Client sends 1 or 2.
 //   * up-front env-var check in /migration-verify so a missing secret
@@ -28,7 +34,11 @@
 //     via the service account).
 //
 // Required secrets:
-//   RELAY_SECRET            shared secret (must equal the app's _secret)
+//   RELAY_SECRET            legacy shared secret (transition only — see
+//                           ALLOW_LEGACY_SECRET)
+//   ALLOW_LEGACY_SECRET     optional; set to "false" once all installs send
+//                           a Firebase ID token
+//   FIREBASE_PROJECT_ID     optional; defaults to tonkoh-bible-truth-revea-a7694
 //   TURN_TOKEN_ID           Cloudflare Realtime TURN key id
 //   TURN_API_TOKEN          Cloudflare Realtime TURN API token
 //   ONESIGNAL_APP_ID        OneSignal app id
@@ -37,15 +47,115 @@
 //   FIREBASE_CLIENT_EMAIL   from the service account JSON ("client_email")
 //   FIREBASE_PRIVATE_KEY    from the service account JSON ("private_key", keep the \n)
 //
-// Realtime Database rules — add:
-//   "migrationAttempts": { "$claimedPhone": { ".read": true, ".write": false } }
+// Realtime Database rules: see database.rules.json in the app repo.
 // =====================================================================
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
+
+const DEFAULT_FIREBASE_PROJECT_ID = "tonkoh-bible-truth-revea-a7694";
+
+// =====================================================================
+// Caller authentication — Firebase ID token
+// The app sends `Authorization: Bearer <Firebase ID token>` (anonymous
+// sign-in is enough). The token is an RS256 JWT signed by Google's
+// securetoken service; verify signature, audience, issuer and expiry.
+// =====================================================================
+
+const SECURETOKEN_JWKS_URL =
+  "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com";
+
+let cachedJwks = null;
+let cachedJwksExpiry = 0;
+
+async function getSecuretokenKeys() {
+  const now = Date.now();
+  if (cachedJwks && cachedJwksExpiry > now) return cachedJwks;
+  const res = await fetch(SECURETOKEN_JWKS_URL);
+  if (!res.ok) throw new Error(`JWKS fetch failed: ${res.status}`);
+  const body = await res.json();
+  const maxAge = /max-age=(\d+)/.exec(res.headers.get("Cache-Control") || "");
+  cachedJwks = body.keys || [];
+  cachedJwksExpiry = now + (maxAge ? Number(maxAge[1]) * 1000 : 3600 * 1000);
+  return cachedJwks;
+}
+
+function base64urlToBytes(s) {
+  const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function decodeJwtPart(s) {
+  return JSON.parse(new TextDecoder().decode(base64urlToBytes(s)));
+}
+
+// Returns the token's claims (`sub` is the Firebase uid) or null.
+async function verifyFirebaseIdToken(request, env) {
+  const header = request.headers.get("Authorization") || "";
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  if (!match) return null;
+  try {
+    const [h, p, sig] = match[1].split(".");
+    if (!h || !p || !sig) return null;
+    const head = decodeJwtPart(h);
+    const claims = decodeJwtPart(p);
+    if (head.alg !== "RS256" || !head.kid) return null;
+
+    const projectId = env.FIREBASE_PROJECT_ID || DEFAULT_FIREBASE_PROJECT_ID;
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (claims.aud !== projectId) return null;
+    if (claims.iss !== `https://securetoken.google.com/${projectId}`) return null;
+    if (!claims.sub || typeof claims.sub !== "string") return null;
+    if (!(claims.exp > nowSec)) return null;
+    if (claims.iat && claims.iat > nowSec + 300) return null;
+
+    const jwk = (await getSecuretokenKeys()).find((k) => k.kid === head.kid);
+    if (!jwk) return null;
+    const key = await crypto.subtle.importKey(
+      "jwk",
+      jwk,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["verify"]
+    );
+    const valid = await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      key,
+      base64urlToBytes(sig),
+      new TextEncoder().encode(`${h}.${p}`)
+    );
+    return valid ? claims : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// TRANSITION: builds released before the token change only send the shared
+// `secret` in the body. Keep accepting it until every install has updated
+// (force-update can push them), then set ALLOW_LEGACY_SECRET=false.
+function legacySecretAllowed(env, secret) {
+  return (
+    env.ALLOW_LEGACY_SECRET !== "false" &&
+    !!env.RELAY_SECRET &&
+    secret === env.RELAY_SECRET
+  );
+}
+
+// { claims } for a verified Firebase user, { legacy: true } for the old
+// shared secret, or null when the caller isn't authorised.
+async function authorize(request, env, secret) {
+  const claims = await verifyFirebaseIdToken(request, env);
+  if (claims) return { claims };
+  if (legacySecretAllowed(env, secret)) return { legacy: true };
+  return null;
+}
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -287,11 +397,26 @@ async function commitMigration(
   const oldProfile = (await dbGet(env, `users/${key}`)) || {};
   const oldDeviceId = oldProfile.activeDeviceId || "";
 
+  // Move the account's login link (see database.rules.json) to the new
+  // device's Firebase uid. A legacy-secret caller has no verified uid, so
+  // the link is cleared instead and the new device claims it on launch
+  // (AuthManager.linkAuthUid).
   await dbPatch(env, `users/${key}`, {
     activeDeviceId: newDeviceId || "",
     oneSignalId: newOneSignalId || "",
+    authUid: meta.authUid || null,
     migratedAt: Date.now(),
   });
+  if (oldProfile.authUid && oldProfile.authUid !== meta.authUid) {
+    try {
+      await dbSet(env, `authIndex/${encodeURIComponent(oldProfile.authUid)}`, null);
+    } catch (_) {
+      // stale index entry is harmless: the rules check both directions
+    }
+  }
+  if (meta.authUid) {
+    await dbSet(env, `authIndex/${encodeURIComponent(meta.authUid)}`, claimedPhone);
+  }
 
   // Security audit trail: who moved this account, when, and whether chat
   // verification was required.
@@ -346,7 +471,6 @@ async function handleMigrationVerify(request, env) {
 
   try {
     const missing = [
-      "RELAY_SECRET",
       "FIREBASE_DB_URL",
       "FIREBASE_CLIENT_EMAIL",
       "FIREBASE_PRIVATE_KEY",
@@ -376,9 +500,11 @@ async function handleMigrationVerify(request, env) {
       newOneSignalId,
     } = body ?? {};
 
-    if (secret !== env.RELAY_SECRET) {
+    const caller = await authorize(request, env, secret);
+    if (!caller) {
       return json({ ok: false, reason: "bad_secret" }, 200);
     }
+    const authUid = caller.claims ? caller.claims.sub : null;
     if (!claimedPhone || !newDeviceId) {
       return json({ ok: false, reason: "bad_request" }, 400);
     }
@@ -411,6 +537,7 @@ async function handleMigrationVerify(request, env) {
         {
           verified: false,
           reason: lastSeenMs > 0 ? "offline_direct" : "no_presence_direct",
+          authUid,
           lastSeenMs,
           offlineMs: Number.isFinite(offlineMs) ? offlineMs : null,
         }
@@ -445,7 +572,13 @@ async function handleMigrationVerify(request, env) {
         claimedPhone,
         newDeviceId,
         newOneSignalId,
-        { verified: false, reason: "no_partners_confirm", lastSeenMs, offlineMs }
+        {
+          verified: false,
+          reason: "no_partners_confirm",
+          lastSeenMs,
+          offlineMs,
+          authUid,
+        }
       );
       return json({ ok: true, profile }, 200);
     }
@@ -484,7 +617,13 @@ async function handleMigrationVerify(request, env) {
       claimedPhone,
       newDeviceId,
       newOneSignalId,
-      { verified: true, reason: "chat_partner_verified", lastSeenMs, offlineMs }
+      {
+        verified: true,
+        reason: "chat_partner_verified",
+        lastSeenMs,
+        offlineMs,
+        authUid,
+      }
     );
     return json({ ok: true, profile }, 200);
   } catch (err) {
@@ -563,7 +702,7 @@ export default {
         largeIcon,
       } = body ?? {};
 
-      if (secret !== env.RELAY_SECRET) {
+      if (!(await authorize(request, env, secret))) {
         return json({ error: "unauthorized" }, 401);
       }
 
@@ -639,7 +778,7 @@ export default {
         chatId,
       } = body ?? {};
 
-      if (secret !== env.RELAY_SECRET) {
+      if (!(await authorize(request, env, secret))) {
         return json({ error: "unauthorized" }, 401);
       }
       if (!oneSignalId || !callId || !callerId) {

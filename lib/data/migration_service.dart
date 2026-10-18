@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 
+import '../config/worker_api.dart';
 import '../screens/auth/auth_manager.dart';
 
 enum MigrationStatus {
@@ -62,9 +63,6 @@ class MigrationService {
   MigrationService._();
   static final MigrationService instance = MigrationService._();
 
-  static const _endpoint =
-      'https://small-dream-b231.tonkohbibletruthrevealers.workers.dev/migration-verify';
-  static const _secret = 'test-relay-secret-123';
 
   Future<MigrationOutcome> _post(
     String claimedPhone,
@@ -78,10 +76,10 @@ class MigrationService {
           'newDeviceId=$newDeviceId');
       final resp = await http
           .post(
-            Uri.parse(_endpoint),
-            headers: {'Content-Type': 'application/json'},
+            Uri.parse(WorkerApi.migrationVerifyUrl),
+            headers: await WorkerApi.headers(),
             body: jsonEncode({
-              'secret': _secret,
+              'secret': WorkerApi.legacySecret,
               'claimedPhone': claimedPhone,
               'candidates': candidates,
               'confirmNoPartners': confirmNoPartners,
