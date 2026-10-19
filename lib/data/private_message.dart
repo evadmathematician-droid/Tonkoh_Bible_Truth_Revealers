@@ -1,3 +1,17 @@
+/// Delivery state of a message *I* sent, kept only on this phone.
+class MessageStatus {
+  MessageStatus._();
+
+  /// Saved locally, not yet acknowledged by Firebase (offline / sending).
+  static const int pending = 0;
+
+  /// On the server — the recipient's phone hasn't picked it up yet.
+  static const int sent = 1;
+
+  /// The recipient's phone saved it (it removed the relay copy).
+  static const int delivered = 2;
+}
+
 /// Mirrors the Kotlin `PrivateMessage` data class used for both the
 /// Firebase relay node and the local (SQLite) store.
 class PrivateMessage {
@@ -30,6 +44,10 @@ class PrivateMessage {
   /// true = the recipient has played / read this message.
   final bool listened;
 
+  /// [MessageStatus] — local only, never sent to Firebase. Messages from
+  /// the other person are always [MessageStatus.sent].
+  final int status;
+
   const PrivateMessage({
     required this.id,
     this.text = '',
@@ -49,6 +67,7 @@ class PrivateMessage {
     this.mimeType = '',
     this.waveform = const [],
     this.listened = false,
+    this.status = MessageStatus.sent,
   });
 
   PrivateMessage copyWith({
@@ -70,6 +89,7 @@ class PrivateMessage {
     String? mimeType,
     List<double>? waveform,
     bool? listened,
+    int? status,
   }) {
     return PrivateMessage(
       id: id ?? this.id,
@@ -90,6 +110,7 @@ class PrivateMessage {
       mimeType: mimeType ?? this.mimeType,
       waveform: waveform ?? this.waveform,
       listened: listened ?? this.listened,
+      status: status ?? this.status,
     );
   }
 
@@ -162,6 +183,7 @@ class PrivateMessage {
     // string — decoded back into List<double> in fromDbMap.
     'waveform': waveform.join(','),
     'listened': listened ? 1 : 0,
+    'status': status,
   };
 
   factory PrivateMessage.fromDbMap(Map<String, Object?> map) {
@@ -184,6 +206,7 @@ class PrivateMessage {
       mimeType: (map['mimeType'] ?? '') as String,
       waveform: _parseWaveformCsv((map['waveform'] ?? '') as String),
       listened: (map['listened'] as int? ?? 0) == 1,
+      status: (map['status'] as int?) ?? MessageStatus.sent,
     );
   }
 

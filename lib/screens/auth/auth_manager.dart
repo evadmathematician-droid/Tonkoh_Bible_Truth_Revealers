@@ -189,8 +189,8 @@ class AuthManager {
   static Future<UserProfile?> getCachedProfile() async {
     final prefs = await SharedPreferences.getInstance();
     final uid = prefs.getString('${_prefsPrefix}uid');
-    if (uid == null) return null;
-    return UserProfile(
+    if (uid == null) return lastKnownProfile = null;
+    return lastKnownProfile = UserProfile(
       uid: uid,
       name: prefs.getString('${_prefsPrefix}name') ?? '',
       phone: prefs.getString('${_prefsPrefix}phone') ?? '',
@@ -200,7 +200,13 @@ class AuthManager {
     );
   }
 
+  /// The cached profile as of the last [getCachedProfile] (AuthGate reads
+  /// it at startup) — synchronous, so a chat screen can pick its chat id
+  /// and draw saved messages on its very first frame.
+  static UserProfile? lastKnownProfile;
+
   static Future<void> _cacheProfileLocally(UserProfile profile) async {
+    lastKnownProfile = profile;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('${_prefsPrefix}uid', profile.uid);
     await prefs.setString('${_prefsPrefix}name', profile.name);
@@ -227,6 +233,7 @@ class AuthManager {
   }
 
   static Future<void> clearCachedProfile() async {
+    lastKnownProfile = null;
     await clearClaimMarker();
     final prefs = await SharedPreferences.getInstance();
     for (final key in [

@@ -2,18 +2,17 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:provider/provider.dart';
 
 import '../data/chat_summary.dart';
 import '../data/display_names.dart';
-import '../screens/auth/auth_manager.dart';
-import '../util/base64_image_cache.dart';
+import '../data/local_chat_store.dart';
+import 'components/profile_avatar.dart';
 
-/// Real "Discussions" list — replaces the old `_StubScreen('Chat List')`
-/// route. Reads `userChats/{currentUid}` from Firebase Realtime Database
-/// (the same node PrivateChatScreen.kt writes chat summaries to) and
-/// lets the user tap into an existing private chat.
+/// The "Discussions" list. Drawn from the phone's saved chat list
+/// (LocalChatStore), so it appears instantly — offline too — with last
+/// message, time and unread count; ChatSyncService keeps that list in step
+/// with `userChats/{me}` in the background.
 class DiscussionsScreen extends StatefulWidget {
   const DiscussionsScreen({super.key});
 
@@ -22,60 +21,28 @@ class DiscussionsScreen extends StatefulWidget {
 }
 
 class _DiscussionsScreenState extends State<DiscussionsScreen> {
-  bool _isLoading = true;
-  List<ChatSummary> _chats = [];
-  StreamSubscription<DatabaseEvent>? _sub;
+  // Already in memory if the list was read this session: no spinner at all.
+  List<ChatSummary> _chats =
+      ChatSummary.dedupeByPerson(LocalChatStore.instance.cachedChats ?? const []);
+  bool _isLoading = LocalChatStore.instance.cachedChats == null;
+  StreamSubscription<void>? _sub;
 
   @override
   void initState() {
     super.initState();
-    _loadCurrentUserAndListen();
+    _sub = LocalChatStore.instance.chatsChanged.listen((_) => _reload());
+    _reload();
   }
 
-  Future<void> _loadCurrentUserAndListen() async {
-    await AuthManager.ensureSignedIn(
-      onReady: () async {
-        final cached = await AuthManager.getCachedProfile();
-        if (cached == null) {
-          setState(() => _isLoading = false);
-          return;
-        }
-        _listenToChats(cached.uid);
-      },
-      onError: (_) {
-        setState(() => _isLoading = false);
-      },
-    );
-  }
-
-  void _listenToChats(String uid) {
-    final ref = FirebaseDatabase.instance.ref('userChats/$uid');
-    _sub = ref.onValue.listen((event) {
-      final data = event.snapshot.value;
-      final List<ChatSummary> parsed = [];
-
-      if (data is Map) {
-        data.forEach((key, value) {
-          if (value is Map) {
-            parsed.add(ChatSummary.fromMap(key.toString(), value));
-          }
-        });
-      }
-
+  Future<void> _reload() async {
+    final list = await LocalChatStore.instance.chats();
+    if (!mounted) return;
+    setState(() {
       // Collapse rows that point at the same person — one phone number is
-      // one account (a number mirrored across devices still shares it), so
-      // legacy / differently-formatted duplicates must not show as
-      // separate chats. dedupeByPerson also sorts newest-first.
-      final deduped = ChatSummary.dedupeByPerson(parsed);
-
-      if (mounted) {
-        setState(() {
-          _chats = deduped;
-          _isLoading = false;
-        });
-      }
-    }, onError: (_) {
-      if (mounted) setState(() => _isLoading = false);
+      // one account, so legacy / differently-formatted duplicates must not
+      // show as separate chats. dedupeByPerson also sorts newest-first.
+      _chats = ChatSummary.dedupeByPerson(list);
+      _isLoading = false;
     });
   }
 
@@ -97,14 +64,6 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
       return '$h:$m $ampm';
     }
     return '${date.month}/${date.day}';
-  }
-
-  ImageProvider? _avatarFromBase64(String base64Str) {
-    final bytes = Base64ImageCache.decode(base64Str);
-    if (bytes == null) return null;
-    // List-row avatars are small; decode the (camera-crop-sized) photo
-    // down to ~128 px rather than caching it at full resolution.
-    return ResizeImage(MemoryImage(bytes), width: 128, height: 128);
   }
 
   @override
@@ -134,20 +93,15 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
         separatorBuilder: (_, __) => const Divider(height: 1),
         itemBuilder: (context, index) {
           final chat = _chats[index];
-          final avatar = _avatarFromBase64(chat.otherPhotoUrl);
+          final name = names.nameFor(chat.otherUid);
           return ListTile(
-            leading: CircleAvatar(
-              radius: 24,
-              backgroundColor: const Color(0xFF102A72).withValues(alpha: 0.1),
-              backgroundImage: avatar,
-              child: avatar == null
-                  ? const Icon(Icons.person, color: Color(0xFF102A72))
-                  : null,
-            ),
+            // Saved photo from the phone, refreshed in the background.
+            leading: CachedProfileAvatar(
+                uid: chat.otherUid, name: name, size: 48),
             // Saved-contact name, or just the number for anyone not in
             // the phone's contacts (never their self-chosen profile name).
             title: Text(
-              names.nameFor(chat.otherUid),
+              name,
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             subtitle: Text(

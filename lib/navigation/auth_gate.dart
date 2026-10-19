@@ -4,8 +4,10 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
 import '../data/account_self_repair.dart';
+import '../data/chat_sync_service.dart';
 import '../data/contact_sync_service.dart';
 import '../data/phone_aliases.dart';
+import '../data/profile_photo_cache.dart';
 import '../screens/auth/auth_manager.dart';
 import '../share/share_intake.dart';
 import '../screens/profile/profile_setup_screen.dart';
@@ -90,6 +92,10 @@ class _AuthGateState extends State<AuthGate> {
     _uid = uid;
     setState(() => _status = _GateStatus.ready);
     _watchProfileExistence(uid);
+    // Local-first chats: saved avatars into memory, and new messages saved
+    // to the phone in the background before any chat is opened.
+    unawaited(ProfilePhotoCache.instance.warmUp());
+    unawaited(ChatSyncService.instance.start(uid));
     // Anything shared in from another app while signed out can open now.
     ShareIntake.instance.onSignedIn();
 
@@ -205,6 +211,7 @@ class _AuthGateState extends State<AuthGate> {
       debugPrint('[DeviceWatch] signing out uid=$uid — active device is now $effective');
       await _profileSub?.cancel();
       _profileSub = null;
+      await ChatSyncService.instance.stop();
       await AuthManager.clearCachedProfile();
       if (mounted) setState(() => _status = _GateStatus.needsProfile);
     });

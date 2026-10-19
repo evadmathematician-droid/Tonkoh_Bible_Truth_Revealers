@@ -17,12 +17,12 @@ import 'package:provider/provider.dart';
 import '../auth/auth_manager.dart';
 import '../auth/presence_manager.dart';
 import '../../cloudinary/cloudinary_upload.dart';
-import '../../data/chat_summary.dart';
-import '../../data/chat_read_position_store.dart';
+import '../../data/chat_sync_service.dart';
 import '../../data/display_names.dart';
 import '../../data/local_chat_store.dart';
 import '../../data/phone_aliases.dart';
 import '../../data/private_message.dart';
+import '../../data/profile_photo_cache.dart';
 import '../../services/resumable_downloader.dart';
 import '../../services/share_service.dart';
 import '../components/full_screen_profile_photo.dart';
@@ -31,7 +31,6 @@ import 'chat_helpers.dart';
 import 'message_bubbles.dart' hide VoiceMessageBubble;
 import '../../services/voice_message_bubble.dart';
 import '../chat/private_chat_input.dart';
-import 'private_chat_push.dart';
 import 'package:tbtrapp/services/voice_recorder.dart';
 
 // ── CALL IMPORTS ──
@@ -73,14 +72,20 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   int _otherUserLastReadTimestamp = 0;
 
   String? _chatId;
-  DatabaseReference? _messagesRef;
 
+  /// Loaded window of the conversation, oldest first. Starts as the newest
+  /// [LocalChatStore.pageSize] messages; scrolling up prepends older pages.
   final List<PrivateMessage> _messages = [];
+  bool _hasOlder = true;
+  bool _loadingOlder = false;
+  // The list is reversed (index 0 = newest at the bottom), so it opens on
+  // the newest message with no scroll jump.
   final _scrollController = ScrollController();
   final _messageController = TextEditingController();
 
-  StreamSubscription<List<PrivateMessage>>? _localSub;
-  StreamSubscription<DatabaseEvent>? _relaySub;
+  StreamSubscription<String>? _localSub;
+  final Stopwatch _openTimer = Stopwatch()..start();
+  bool _openLogged = false;
   StreamSubscription<DatabaseEvent>? _presenceSub;
   StreamSubscription<DatabaseEvent>? _readReceiptSub;
   Timer? _markReadDebounce;
@@ -102,31 +107,48 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   @override
   void initState() {
     super.initState();
+    // Local-first: with the profile already in memory, the chat id and the
+    // saved messages are known before the first frame — no blank screen.
+    final known = AuthManager.lastKnownProfile;
+    if (known != null) _applyProfile(known);
+    _otherUserPhotoBase64 = ProfilePhotoCache.instance.photoFor(_otherUid) ?? '';
     _init();
     _scrollController.addListener(_onScroll);
   }
 
+  void _applyProfile(UserProfile p) {
+    _currentProfile = p;
+    _currentUid = p.uid;
+    _currentSenderName = p.name;
+    _currentSenderPhone = p.phone;
+    _currentSenderPhotoUrl = p.photoUrl;
+    _chatId = privateChatId(p.uid, _otherUid);
+    final saved = LocalChatStore.instance.window(_chatId!);
+    if (saved != null && _messages.isEmpty) {
+      _messages.addAll(saved);
+      _hasOlder = saved.length >= LocalChatStore.pageSize;
+      _logOpenTime('memory');
+    }
+  }
+
   Future<void> _init() async {
-    final cached = await AuthManager.getCachedProfile();
-    if (cached != null) {
-      _currentProfile = cached;
-      _currentUid = cached.uid;
-      _currentSenderName = cached.name;
-      _currentSenderPhone = cached.phone;
-      _currentSenderPhotoUrl = cached.photoUrl;
+    if (_currentProfile == null) {
+      final cached = await AuthManager.getCachedProfile();
+      if (cached == null) {
+        debugPrint('PrivateChatScreen: no cached profile found — user may '
+            'not have completed signup.');
+      } else if (mounted) {
+        setState(() => _applyProfile(cached));
+      }
+    }
 
-      _chatId = privateChatId(_currentUid!, _otherUid);
-      _messagesRef =
-          FirebaseDatabase.instance.ref('privateChats/${_chatId!}/messages');
-
+    final cid = _chatId;
+    if (cid != null) {
       _listenLocalMessages();
-      _listenRelay();
+      unawaited(_reloadWindow());
+      // Normally already watched; covers a chat not yet in the chat list.
+      ChatSyncService.instance.watchChat(cid);
       _listenReadReceipt();
-
-      if (mounted) setState(() {});
-    } else {
-      debugPrint(
-          'PrivateChatScreen: no cached profile found — user may not have completed signup.');
     }
 
     await AuthManager.ensureSignedIn(
@@ -147,20 +169,28 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         .get()
         .then((snap) {
       final val = snap.value;
+      if (!mounted) return;
       if (val is Map) {
         final name = (val['name'] ?? '') as String;
         final phone = (val['phone'] ?? '') as String;
+        final photo = (val['photoUrl'] ?? '') as String;
+        if (photo.isNotEmpty) {
+          ProfilePhotoCache.instance.updateCached(_otherUid, photo);
+        }
         setState(() {
           _otherProfileName = name.isNotEmpty ? name : phone;
           _otherUserPhone = phone;
           _otherUserCountry = (val['country'] ?? '') as String;
-          _otherUserPhotoBase64 = (val['photoUrl'] ?? '') as String;
+          if (photo.isNotEmpty) _otherUserPhotoBase64 = photo;
         });
       } else {
         setState(() => _otherProfileName = 'Chat');
       }
     }).catchError((_) {
-      setState(() => _otherProfileName = 'Chat');
+      // Offline: keep the saved photo / number; nothing to wait for.
+      if (mounted && _otherProfileName.isEmpty) {
+        setState(() => _otherProfileName = 'Chat');
+      }
     });
   }
 
@@ -191,81 +221,80 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     });
   }
 
+  /// Re-reads the loaded window whenever this chat's local messages change
+  /// (a message arrived via ChatSyncService, one of mine was sent or
+  /// delivered, one was deleted).
   void _listenLocalMessages() {
     final cid = _chatId;
     if (cid == null) return;
-    _localSub =
-        LocalChatStore.instance.observeMessages(cid).listen((msgs) async {
-      final wasEmpty = _messages.isEmpty;
-      setState(() {
-        _messages
-          ..clear()
-          ..addAll(msgs);
-      });
-      if (wasEmpty && msgs.isNotEmpty) {
-        final restored = await _restoreScrollPosition();
-        if (!restored) {
-          _scrollToBottomIfNeeded();
-        }
-      } else {
-        _scrollToBottomIfNeeded();
-      }
-    });
+    _localSub = LocalChatStore.instance.changes
+        .where((changed) => changed == cid)
+        .listen((_) => _reloadWindow());
   }
 
-  Future<bool> _restoreScrollPosition() async {
+  Future<void> _reloadWindow() async {
     final cid = _chatId;
-    if (cid == null || _messages.isEmpty) return false;
-    final lastReadId = await ChatReadPositionStore.instance.getLastRead(cid);
-    if (lastReadId == null) return false;
-    final index = _messages.indexWhere((m) => m.id == lastReadId);
-    if (index == -1) return false;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      final estimatedOffset = index * 72.0;
-      _scrollController.jumpTo(
-        estimatedOffset.clamp(0.0, _scrollController.position.maxScrollExtent),
-      );
+    if (cid == null) return;
+    final store = LocalChatStore.instance;
+    final oldest = _messages.isEmpty ? null : _messages.first.timestamp;
+    final msgs =
+        oldest == null ? await store.latest(cid) : await store.since(cid, oldest);
+    if (!mounted) return;
+    final previousNewest = _messages.isEmpty ? null : _messages.last.id;
+    setState(() {
+      _messages
+        ..clear()
+        ..addAll(msgs);
+      if (oldest == null) _hasOlder = msgs.length >= LocalChatStore.pageSize;
     });
-    return true;
-  }
-
-  Future<void> _saveScrollPosition() async {
-    final cid = _chatId;
-    if (cid == null || _messages.isEmpty || !_scrollController.hasClients) {
-      return;
+    _logOpenTime('disk');
+    if (msgs.isEmpty || msgs.last.id == previousNewest) return;
+    // Something new at the bottom: follow it if I'm already near the
+    // bottom (or it's mine), and count it as read while the chat is open.
+    if (msgs.last.senderId == _currentUid || _nearBottom) {
+      _scrollToBottomIfNeeded();
     }
-    final index = (_scrollController.offset / 72.0)
-        .round()
-        .clamp(0, _messages.length - 1);
-    await ChatReadPositionStore.instance.saveLastRead(cid, _messages[index].id);
+    _scheduleMarkRead();
   }
 
-  void _listenRelay() {
-    final ref = _messagesRef;
+  void _logOpenTime(String source) {
+    if (_openLogged || _messages.isEmpty) return;
+    _openLogged = true;
+    final ms = _openTimer.elapsedMilliseconds;
+    debugPrint('[ChatOpen] ${_messages.length} messages visible after ${ms}ms '
+        '(from $source)');
+  }
+
+  /// Older page from the phone when scrolling up to the top of the window.
+  Future<void> _loadOlder() async {
     final cid = _chatId;
-    final myUid = _currentUid;
-    if (ref == null || cid == null) return;
-
-    _relaySub = ref.onChildAdded.listen((event) async {
-      final key = event.snapshot.key;
-      final val = event.snapshot.value;
-      if (key == null || val is! Map) return;
-
-      final msg = PrivateMessage.fromFirebaseMap(key, val);
-      await LocalChatStore.instance.insert(cid, msg);
-      // Metadata only — the audio file for a voice note / audio attachment
-      // is fetched on demand when the user taps play (CachedAudioTile /
-      // VoiceMessageBubble), not eagerly on receipt.
-
-      if (myUid != null && msg.senderId != myUid) {
-        await event.snapshot.ref.remove();
-      }
-    });
+    if (cid == null || _loadingOlder || !_hasOlder || _messages.isEmpty) return;
+    _loadingOlder = true;
+    try {
+      final older = await LocalChatStore.instance
+          .olderThan(cid, _messages.first.timestamp);
+      if (!mounted) return;
+      setState(() {
+        _messages.insertAll(0, older);
+        _hasOlder = older.length >= LocalChatStore.pageSize;
+      });
+    } finally {
+      _loadingOlder = false;
+    }
   }
+
+  bool get _nearBottom =>
+      !_scrollController.hasClients || _scrollController.offset < 240;
 
   void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    // Reversed list: the top of the conversation is maxScrollExtent.
+    if (pos.pixels > pos.maxScrollExtent - 400) unawaited(_loadOlder());
+    _scheduleMarkRead();
+  }
+
+  void _scheduleMarkRead() {
     _markReadDebounce?.cancel();
     _markReadDebounce = Timer(const Duration(milliseconds: 300), () {
       if (_messages.isEmpty) return;
@@ -274,11 +303,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   void _scrollToBottomIfNeeded() {
-    Future.delayed(const Duration(milliseconds: 200), () {
-      if (_scrollController.hasClients) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients && _scrollController.offset > 0) {
         _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
+          0,
+          duration: const Duration(milliseconds: 250),
           curve: Curves.easeOut,
         );
       }
@@ -298,46 +327,32 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     });
   }
 
-  Future<void> _writeChatSummaries(
-      String uid, String cid, String lastMessage, int timestamp) async {
-    final db = FirebaseDatabase.instance;
+  /// A new relay key for a message in this chat (also its local id).
+  String _newMessageId(String cid) =>
+      FirebaseDatabase.instance.ref('privateChats/$cid/messages').push().key!;
 
-    await db.ref('userChats/$uid/$cid').set(
-          ChatSummary(
-            chatId: cid,
-            otherUid: _otherUid,
-            otherName: _otherProfileName.isEmpty ? 'Chat' : _otherProfileName,
-            otherPhotoUrl: _otherUserPhotoBase64,
-            lastMessage: lastMessage,
-            lastTimestamp: timestamp,
-            unread: 0,
-            lastReadTimestamp: timestamp,
-          ).toFirebaseMap(),
-        );
-
-    final recipientRef = db.ref('userChats/$_otherUid/$cid');
-    await recipientRef.update({
-      'otherUid': uid,
-      'otherName':
-          _currentSenderName.isEmpty ? _currentSenderPhone : _currentSenderName,
-      'otherPhotoUrl': _currentSenderPhotoUrl,
-      'lastMessage': lastMessage,
-      'lastTimestamp': timestamp,
-    });
-
-    await recipientRef.child('unread').runTransaction((current) {
-      final currentInt = (current as num?)?.toInt() ?? 0;
-      return Transaction.success(currentInt + 1);
-    });
+  /// Shows [message] at once (saved locally as pending), then uploads it in
+  /// the background; the tick updates when it reaches the server and again
+  /// when the other phone receives it. Offline, it waits in the outbox.
+  Future<void> _sendLocalFirst(String cid, PrivateMessage message,
+      {String? preview}) async {
+    await LocalChatStore.instance
+        .insert(cid, message.copyWith(status: MessageStatus.pending));
+    _scrollToBottomIfNeeded();
+    unawaited(ChatSyncService.instance.send(
+      chatId: cid,
+      otherUid: _otherUid,
+      message: message,
+      preview: preview,
+    ));
   }
 
   Future<void> _sendMessage() async {
     final trimmed = _messageController.text.trim();
     final uid = _currentUid;
-    final ref = _messagesRef;
     final cid = _chatId;
     if (trimmed.isEmpty) return;
-    if (uid == null || ref == null || cid == null) {
+    if (uid == null || cid == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -350,10 +365,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final reply = _replyingTo;
-    final newRef = ref.push();
 
     final message = PrivateMessage(
-      id: newRef.key ?? '',
+      id: _newMessageId(cid),
       text: trimmed,
       type: 'text',
       timestamp: timestamp,
@@ -372,22 +386,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     _messageController.clear();
     setState(() => _replyingTo = null);
 
-    // Local store first: fast, offline-capable, and its stream drives the
-    // optimistic bubble into the UI immediately.
-    await LocalChatStore.instance.insert(cid, message);
-    _scrollToBottomIfNeeded();
-
-    // Transport + fan-out in the background. Firebase's offline persistence
-    // queues these and flushes on reconnect.
-    unawaited(newRef.set(message.toFirebaseMap()));
-    unawaited(sendPrivateChatPushNotification(
-      otherUid: _otherUid,
-      chatId: cid,
-      senderName: _currentSenderName,
-      messageBody: trimmed,
-      senderUid: uid,
-    ));
-    unawaited(_writeChatSummaries(uid, cid, trimmed, timestamp));
+    // Local store first (pending tick), upload in the background.
+    await _sendLocalFirst(cid, message);
   }
 
   /// Send a picked attachment.
@@ -405,9 +405,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     required String? providedMime,
   }) async {
     final uid = _currentUid;
-    final ref = _messagesRef;
     final cid = _chatId;
-    if (uid == null || ref == null || cid == null) {
+    if (uid == null || cid == null) {
       _snack('Chat not ready yet — try again in a moment.');
       return;
     }
@@ -441,7 +440,6 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final newRef = ref.push();
 
       String fileRef;
       if (useCloudinary) {
@@ -465,7 +463,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       }
 
       final message = PrivateMessage(
-        id: newRef.key ?? '',
+        id: _newMessageId(cid),
         type: msgType,
         fileUrl: fileRef,
         fileName: fileName,
@@ -479,9 +477,6 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         replyToSenderName: reply?.senderName ?? '',
       );
 
-      await newRef.set(message.toFirebaseMap());
-      await LocalChatStore.instance.insert(cid, message);
-
       final label = switch (msgType) {
         'image' => '📷 Photo',
         'video' => '🎥 Video',
@@ -489,17 +484,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         _ => '📎 $fileName',
       };
 
-      await _writeChatSummaries(uid, cid, label, timestamp);
-      unawaited(sendPrivateChatPushNotification(
-        otherUid: _otherUid,
-        chatId: cid,
-        senderName: _currentSenderName,
-        messageBody: label,
-        senderUid: uid,
-      ));
-
-      setState(() => _replyingTo = null);
-      _scrollToBottomIfNeeded();
+      // The media is uploaded; the message itself goes local-first like
+      // text, so it survives going offline from here on.
+      await _sendLocalFirst(cid, message, preview: label);
+      if (mounted) setState(() => _replyingTo = null);
     } catch (e) {
       _snack('Upload failed — check your connection and try again.');
       debugPrint('_uploadAttachment failed: $e');
@@ -815,7 +803,6 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   Future<void> _stopVoiceRecordingAndSend() async {
     final uid = _currentUid;
-    final ref = _messagesRef;
     final cid = _chatId;
     _recordingTimer?.cancel();
 
@@ -825,7 +812,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       _isPaused = false;
     });
 
-    if (uid == null || ref == null || cid == null) {
+    if (uid == null || cid == null) {
       await _voiceRecorder.cancelRecording();
       return;
     }
@@ -834,9 +821,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     await _voiceRecorder.encodeRecordingToBase64(
       onSuccess: (base64Audio) async {
         final timestamp = DateTime.now().millisecondsSinceEpoch;
-        final newRef = ref.push();
         final message = PrivateMessage(
-          id: newRef.key ?? '',
+          id: _newMessageId(cid),
           audioUrl: base64Audio,
           type: 'voice',
           // VoiceRecorderService always emits a PCM-16 WAV; state it
@@ -852,18 +838,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           replyToText: reply != null ? previewLabelFor(reply) : '',
           replyToSenderName: reply?.senderName ?? '',
         );
-        await newRef.set(message.toFirebaseMap());
-        await LocalChatStore.instance.insert(cid, message);
-        await _writeChatSummaries(uid, cid, '🎤 Voice message', timestamp);
-        unawaited(sendPrivateChatPushNotification(
-          otherUid: _otherUid,
-          chatId: cid,
-          senderName: _currentSenderName,
-          messageBody: '🎤 Voice message',
-          senderUid: uid,
-        ));
-        setState(() => _replyingTo = null);
-        _scrollToBottomIfNeeded();
+        if (mounted) setState(() => _replyingTo = null);
+        await _sendLocalFirst(cid, message, preview: '🎤 Voice message');
       },
       onFailure: (_) {},
     );
@@ -923,15 +899,13 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   Future<void> _sendSticker(String stickerId) async {
     final uid = _currentUid;
-    final ref = _messagesRef;
     final cid = _chatId;
-    if (uid == null || ref == null || cid == null) return;
+    if (uid == null || cid == null) return;
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final reply = _replyingTo;
-    final newRef = ref.push();
     final message = PrivateMessage(
-      id: newRef.key ?? '',
+      id: _newMessageId(cid),
       type: 'sticker',
       stickerId: stickerId,
       timestamp: timestamp,
@@ -942,18 +916,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       replyToText: reply != null ? previewLabelFor(reply) : '',
       replyToSenderName: reply?.senderName ?? '',
     );
-    await newRef.set(message.toFirebaseMap());
-    await LocalChatStore.instance.insert(cid, message);
-    await _writeChatSummaries(uid, cid, '🩹 Sticker', timestamp);
-    unawaited(sendPrivateChatPushNotification(
-      otherUid: _otherUid,
-      chatId: cid,
-      senderName: _currentSenderName,
-      messageBody: '🩹 Sticker',
-      senderUid: uid,
-    ));
     setState(() => _replyingTo = null);
-    _scrollToBottomIfNeeded();
+    await _sendLocalFirst(cid, message, preview: '🩹 Sticker');
   }
 
   String _formatLastSeen(int millis) {
@@ -975,9 +939,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   @override
   void dispose() {
-    _saveScrollPosition();
     _localSub?.cancel();
-    _relaySub?.cancel();
     _presenceSub?.cancel();
     _readReceiptSub?.cancel();
     _markReadDebounce?.cancel();
@@ -1176,7 +1138,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                     ),
                     if (isMine) ...[
                       const SizedBox(width: 4),
-                      ReadReceiptTick(
+                      MessageStatusTick(
+                          status: message.status,
                           isRead:
                               _otherUserLastReadTimestamp >= message.timestamp),
                     ],
@@ -1417,12 +1380,17 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         child: Column(
           children: [
             Expanded(
+              // Reversed: item 0 is the newest message at the bottom, so the
+              // chat opens on it immediately; older pages are prepended as
+              // the top is approached (see _onScroll / _loadOlder).
               child: ListView.builder(
                 controller: _scrollController,
+                reverse: true,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                 itemCount: _messages.length,
-                itemBuilder: _buildMessageRow,
+                itemBuilder: (context, i) =>
+                    _buildMessageRow(context, _messages.length - 1 - i),
               ),
             ),
             // ✅ Input bar now lives in the body, below the message list,

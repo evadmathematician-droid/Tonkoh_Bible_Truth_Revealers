@@ -69,22 +69,32 @@ class AvatarView extends StatelessWidget {
   }
 }
 
-class ReadReceiptTick extends StatelessWidget {
+/// WhatsApp-style tick for one of my messages: clock while it waits on
+/// this phone (offline / sending), one tick on the server, two grey ticks
+/// once the other phone has it, two blue ticks once it has been read.
+class MessageStatusTick extends StatelessWidget {
+  final int status;
   final bool isRead;
-  final EdgeInsetsGeometry? modifier;
+  final Color color;
+  final Color readColor;
 
-  const ReadReceiptTick({super.key, required this.isRead, this.modifier});
+  const MessageStatusTick({
+    super.key,
+    required this.status,
+    required this.isRead,
+    this.color = Colors.grey,
+    this.readColor = const Color(0xFF1565C0),
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: modifier ?? EdgeInsets.zero,
-      child: Icon(
-        isRead ? Icons.done_all : Icons.done,
-        size: 14,
-        color: isRead ? const Color(0xFF1565C0) : Colors.grey,
-      ),
-    );
+    final (icon, c, label) = switch (status) {
+      MessageStatus.pending => (Icons.schedule, color, 'Sending'),
+      _ when isRead => (Icons.done_all, readColor, 'Read'),
+      MessageStatus.delivered => (Icons.done_all, color, 'Delivered'),
+      _ => (Icons.done, color, 'Sent'),
+    };
+    return Icon(icon, size: 14, color: c, semanticLabel: label);
   }
 }
 
