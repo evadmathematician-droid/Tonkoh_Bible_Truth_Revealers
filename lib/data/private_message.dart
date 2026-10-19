@@ -1,3 +1,5 @@
+import '../links/link_preview.dart';
+
 /// Delivery state of a message *I* sent, kept only on this phone.
 class MessageStatus {
   MessageStatus._();
@@ -17,7 +19,7 @@ class MessageStatus {
 class PrivateMessage {
   final String id;
   final String text;
-  final String type; // text | sticker | voice | image | video | audio | file
+  final String type; // text | link | sticker | voice | image | video | audio | file
   final int timestamp;
   final String senderId;
   final String senderName;
@@ -48,6 +50,10 @@ class PrivateMessage {
   /// the other person are always [MessageStatus.sent].
   final int status;
 
+  /// Preview card for type "link" (WhatsApp-style). [text] still holds the
+  /// URL, so older app versions show the message as plain text.
+  final LinkPreview? link;
+
   const PrivateMessage({
     required this.id,
     this.text = '',
@@ -68,6 +74,7 @@ class PrivateMessage {
     this.waveform = const [],
     this.listened = false,
     this.status = MessageStatus.sent,
+    this.link,
   });
 
   PrivateMessage copyWith({
@@ -90,6 +97,7 @@ class PrivateMessage {
     List<double>? waveform,
     bool? listened,
     int? status,
+    LinkPreview? link,
   }) {
     return PrivateMessage(
       id: id ?? this.id,
@@ -111,6 +119,7 @@ class PrivateMessage {
       waveform: waveform ?? this.waveform,
       listened: listened ?? this.listened,
       status: status ?? this.status,
+      link: link ?? this.link,
     );
   }
 
@@ -134,6 +143,7 @@ class PrivateMessage {
     'mimeType': mimeType,
     'waveform': waveform,
     'listened': listened,
+    if (link != null) 'link': link!.toMap(),
   };
 
   factory PrivateMessage.fromFirebaseMap(String id, Map<dynamic, dynamic> map) {
@@ -156,6 +166,7 @@ class PrivateMessage {
       mimeType: (map['mimeType'] ?? '') as String,
       waveform: _parseWaveformList(map['waveform']),
       listened: (map['listened'] as bool?) ?? false,
+      link: LinkPreview.fromMap(map['link']),
     );
   }
 
@@ -184,6 +195,7 @@ class PrivateMessage {
     'waveform': waveform.join(','),
     'listened': listened ? 1 : 0,
     'status': status,
+    'linkJson': link?.toJson() ?? '',
   };
 
   factory PrivateMessage.fromDbMap(Map<String, Object?> map) {
@@ -207,6 +219,7 @@ class PrivateMessage {
       waveform: _parseWaveformCsv((map['waveform'] ?? '') as String),
       listened: (map['listened'] as int? ?? 0) == 1,
       status: (map['status'] as int?) ?? MessageStatus.sent,
+      link: LinkPreview.fromJson(map['linkJson'] as String?),
     );
   }
 

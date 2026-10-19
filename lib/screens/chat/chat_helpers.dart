@@ -63,6 +63,10 @@ String previewLabelFor(PrivateMessage message) {
       return '🎵 ${message.fileName.isNotEmpty ? message.fileName : "Audio"}';
     case 'file':
       return '📎 ${message.fileName.isNotEmpty ? message.fileName : "File"}';
+    case 'link':
+      final link = message.link;
+      final title = link?.title.trim() ?? '';
+      return '🔗 ${title.isNotEmpty ? title : (link?.url ?? message.text)}';
     case 'call':
       return message.text.contains('video')
           ? '📞 Missed video call'

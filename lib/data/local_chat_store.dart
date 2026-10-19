@@ -20,7 +20,8 @@ import '../data/private_message.dart';
 ///  * v2 `waveform`, v3 `listened`;
 ///  * v4 `status` (pending/sent/delivered), the (chatId, timestamp) index,
 ///    the local chat list (`chats`) and saved profile photos
-///    (`profile_photos`).
+///    (`profile_photos`);
+///  * v5 `linkJson` (link preview cards).
 ///
 /// sqflite has no web implementation, so on web this falls back to an
 /// in-memory store (lost on refresh).
@@ -31,7 +32,7 @@ class LocalChatStore {
 
   static LocalChatStore instance = LocalChatStore();
 
-  static const int _dbVersion = 4;
+  static const int _dbVersion = 5;
 
   /// Messages per page when opening a chat / scrolling back.
   static const int pageSize = 50;
@@ -79,6 +80,7 @@ class LocalChatStore {
               waveform TEXT NOT NULL DEFAULT '',
               listened INTEGER NOT NULL DEFAULT 0,
               status INTEGER NOT NULL DEFAULT 1,
+              linkJson TEXT NOT NULL DEFAULT '',
               PRIMARY KEY (id, chatId)
             )
           ''');
@@ -104,6 +106,11 @@ class LocalChatStore {
               'ALTER TABLE messages ADD COLUMN status INTEGER NOT NULL DEFAULT 1',
             );
             await _createV4Extras(db);
+          }
+          if (oldVersion < 5) {
+            await db.execute(
+              "ALTER TABLE messages ADD COLUMN linkJson TEXT NOT NULL DEFAULT ''",
+            );
           }
         },
       ),

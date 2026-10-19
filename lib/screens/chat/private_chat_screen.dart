@@ -27,6 +27,9 @@ import '../../services/resumable_downloader.dart';
 import '../../services/share_service.dart';
 import '../../ui/chat_theme.dart';
 import '../../ui/linkified_text.dart';
+import '../../links/link_preview.dart';
+import '../../links/link_preview_card.dart';
+import '../../links/typed_link_preview.dart';
 import '../components/full_screen_profile_photo.dart';
 import '../../util/chat_time.dart';
 import 'chat_helpers.dart';
@@ -101,6 +104,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   bool _isUploadingAttachment = false;
   bool _showAttachMenu = false;
   PrivateMessage? _replyingTo;
+  LinkPreview? _composerLink;
 
   /// Selected message ids. Non-empty == selection mode is active.
   final Set<String> _selectedIds = {};
@@ -366,11 +370,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final reply = _replyingTo;
+    final typed = _composerLink;
+    final link =
+        typed != null && trimmed.contains(typed.url) ? typed : null;
+    _composerLink = null;
 
     final message = PrivateMessage(
       id: _newMessageId(cid),
       text: trimmed,
-      type: 'text',
+      type: link == null ? 'text' : 'link',
+      link: link,
       timestamp: timestamp,
       senderId: uid,
       senderName: _currentSenderName,
@@ -1035,12 +1044,31 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         );
         break;
       default:
-        content = LinkifiedText(
+        final text = LinkifiedText(
           message.text,
           style:
               TextStyle(color: palette.text(isMine), fontSize: 15, height: 1.3),
           linkColor: palette.link(isMine),
         );
+        final link = message.link;
+        content = link == null
+            ? text
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // The bare URL is already on the card.
+                  if (message.text.trim() != link.url) ...[
+                    text,
+                    const SizedBox(height: 6),
+                  ],
+                  LinkPreviewCard(
+                    preview: link,
+                    foreground: palette.text(isMine),
+                    secondary: palette.secondary(isMine),
+                    linkColor: palette.link(isMine),
+                  ),
+                ],
+              );
     }
 
     // Time + tick: inside the bubble (bottom right), or under a sticker.
@@ -1431,6 +1459,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                   itemBuilder: (context, i) =>
                       _buildMessageRow(context, _messages.length - 1 - i),
                 ),
+              ),
+              // Card for a link being typed / pasted (sent with the message).
+              TypedLinkPreview(
+                controller: _messageController,
+                onChanged: (p) => _composerLink = p,
               ),
               // ✅ Input bar now lives in the body, below the message list,
               // so it moves correctly with the keyboard.

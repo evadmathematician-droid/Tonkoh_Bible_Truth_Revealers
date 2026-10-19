@@ -139,7 +139,9 @@ void main() {
                   'CREATE INDEX idx_messages_chatId ON messages(chatId)');
             }));
     for (var i = 0; i < 25; i++) {
-      final row = msg(i).toDbMap(cid)..remove('status');
+      final row = msg(i).toDbMap(cid)
+        ..remove('status')
+        ..remove('linkJson');
       await v3.insert('messages', row);
     }
     await v3.close();
