@@ -91,8 +91,8 @@ To add another admin account:
 | `flutter analyze` | No issues found |
 | `flutter test` | **235 passed** (2 preview renders skipped by design) |
 | `flutter build apk --debug` (KGP branch) | OK — **no KGP warning at all** |
-| `flutter build apk --release --split-per-abi` | **Not finished.** Claude Code stopped it because the PC ran out of memory (Android Studio open, ~0.5 GB RAM free). It got past Dart compilation and into R8, still with no KGP warning. |
-| `flutter build appbundle --release` | not reached |
+| `flutter build apk --release --split-per-abi` | **OK** after 24.5 min (Gradle kept running after its parent shell was stopped for low memory). `app-arm64-v8a-release.apk` 37.6 MB, `app-armeabi-v7a-release.apk` 30.7 MB, `app-x86_64-release.apk` 42.8 MB. **No KGP warning** in the output (`docs/build_logs/release_apk_build.txt`). |
+| `flutter build appbundle --release` | **Not run:** its step never started because the parent shell had been stopped. Run it yourself (below). |
 
 Android Studio stayed open during the build: I asked it to close normally,
 but it stayed on its own confirmation and I did not force it.
