@@ -66,6 +66,19 @@ dependencies:
   # web: removed — pulled in transitively; pinning it caused the SDK/js_interop
   # mismatch errors. Add back only if you call dart:js_interop directly.
 
+# Local copies of plugins migrated to Built-in Kotlin (no Kotlin Gradle
+# Plugin warning). See third_party/README.md — remove each override once the
+# official package ships the same migration.
+dependency_overrides:
+  firebase_core:
+    path: third_party/firebase_core
+  firebase_auth:
+    path: third_party/firebase_auth
+  firebase_database:
+    path: third_party/firebase_database
+  firebase_remote_config:
+    path: third_party/firebase_remote_config
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
