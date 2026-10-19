@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../data/app_contact.dart';
+import '../../util/phone_utils.dart';
 import 'profile_avatar.dart';
 
 class ContactRow extends StatelessWidget {
@@ -33,7 +34,7 @@ class ContactRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(contact.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-                    Text(contact.phone, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    Text(formatPhoneForDisplay(contact.phone), style: const TextStyle(fontSize: 12, color: Colors.grey)),
                   ],
                 ),
               ),

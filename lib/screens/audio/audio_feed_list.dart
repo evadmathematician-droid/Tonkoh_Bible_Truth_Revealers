@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../cloudinary/cloudinary_upload.dart';
 import '../../data/display_names.dart';
+import '../../data/phone_aliases.dart';
 import '../../data/feed_item.dart';
 import '../../data/sermon_audio.dart';
 import '../../services/share_service.dart';
@@ -187,8 +188,10 @@ class AudioFeedList extends StatelessWidget {
   /// (saved name, else the number). Tapping it opens the private
   /// message / call / reply sheet — except on my own posts.
   Widget _senderHeader(BuildContext context, FeedItem item) {
-    final senderId =
-        item.sermon?.senderId ?? item.textMessage?.senderId ?? '';
+    // Old posts can carry a malformed id ("+031932652") — resolve it so
+    // the name, photo and private-chat link reach the right account.
+    final senderId = resolveUserId(
+        item.sermon?.senderId ?? item.textMessage?.senderId ?? '');
     final isMine = senderId.isNotEmpty && senderId == currentUid;
     final name = isMine
         ? 'You'

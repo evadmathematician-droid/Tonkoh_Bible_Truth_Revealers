@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
+import '../data/account_self_repair.dart';
 import '../data/contact_sync_service.dart';
+import '../data/phone_aliases.dart';
 import '../screens/auth/auth_manager.dart';
 import '../share/share_intake.dart';
 import '../screens/profile/profile_setup_screen.dart';
@@ -65,6 +67,21 @@ class _AuthGateState extends State<AuthGate> {
       },
       onError: (_) {}, // matches Kotlin's empty onError
     );
+
+    // Signed in now: load the server alias table (old malformed keys →
+    // E.164), then fix this device's own account id if an older version
+    // saved it malformed.
+    await PhoneAliases.instance.load();
+    await _repairAccountId();
+  }
+
+  /// Re-points this device at its corrected account id, if it has one.
+  /// Returns true when the gate switched to it.
+  Future<bool> _repairAccountId() async {
+    final fixed = await AccountSelfRepair.run();
+    if (fixed == null || !mounted) return false;
+    _setReady(fixed);
+    return true;
   }
 
   void _setReady(String uid) {
@@ -137,7 +154,10 @@ class _AuthGateState extends State<AuthGate> {
     _profileSub = ref.onValue.listen((event) async {
       if (!mounted) return;
       if (!event.snapshot.exists) {
-        setState(() => _status = _GateStatus.needsProfile);
+        // The record may have moved to its corrected E.164 key (data
+        // repair) rather than been deleted — follow it if so.
+        if (await _repairAccountId()) return;
+        if (mounted) setState(() => _status = _GateStatus.needsProfile);
         return;
       }
 

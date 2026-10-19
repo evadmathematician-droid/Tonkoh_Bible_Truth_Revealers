@@ -21,6 +21,7 @@ import '../../data/chat_summary.dart';
 import '../../data/chat_read_position_store.dart';
 import '../../data/display_names.dart';
 import '../../data/local_chat_store.dart';
+import '../../data/phone_aliases.dart';
 import '../../data/private_message.dart';
 import '../../services/resumable_downloader.dart';
 import '../../services/share_service.dart';
@@ -49,6 +50,9 @@ class PrivateChatScreen extends StatefulWidget {
 }
 
 class _PrivateChatScreenState extends State<PrivateChatScreen> {
+  // Links from old data may carry a malformed or moved account id.
+  late final String _otherUid = resolveUserId(widget.otherUid);
+
   String? _currentUid;
   String _currentSenderName = '';
   String _currentSenderPhone = '';
@@ -60,7 +64,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   String _otherProfileName = '';
 
   /// Saved-contact name, or just their number if not in my contacts.
-  String get _otherUserName => DisplayNames.instance.nameFor(widget.otherUid);
+  String get _otherUserName => DisplayNames.instance.nameFor(_otherUid);
   String _otherUserPhotoBase64 = '';
   String _otherUserPhone = '';
   String _otherUserCountry = '';
@@ -111,7 +115,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       _currentSenderPhone = cached.phone;
       _currentSenderPhotoUrl = cached.photoUrl;
 
-      _chatId = privateChatId(_currentUid!, widget.otherUid);
+      _chatId = privateChatId(_currentUid!, _otherUid);
       _messagesRef =
           FirebaseDatabase.instance.ref('privateChats/${_chatId!}/messages');
 
@@ -139,7 +143,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   void _listenOtherUserProfile() {
     FirebaseDatabase.instance
-        .ref('users/${widget.otherUid}')
+        .ref('users/$_otherUid')
         .get()
         .then((snap) {
       final val = snap.value;
@@ -162,7 +166,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
   void _listenPresence() {
     _presenceSub = FirebaseDatabase.instance
-        .ref('presence/${widget.otherUid}')
+        .ref('presence/$_otherUid')
         .onValue
         .listen((event) {
       final val = event.snapshot.value;
@@ -179,7 +183,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     final cid = _chatId;
     if (cid == null) return;
     _readReceiptSub = FirebaseDatabase.instance
-        .ref('userChats/${widget.otherUid}/$cid/lastReadTimestamp')
+        .ref('userChats/$_otherUid/$cid/lastReadTimestamp')
         .onValue
         .listen((event) {
       final v = event.snapshot.value;
@@ -301,7 +305,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     await db.ref('userChats/$uid/$cid').set(
           ChatSummary(
             chatId: cid,
-            otherUid: widget.otherUid,
+            otherUid: _otherUid,
             otherName: _otherProfileName.isEmpty ? 'Chat' : _otherProfileName,
             otherPhotoUrl: _otherUserPhotoBase64,
             lastMessage: lastMessage,
@@ -311,7 +315,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
           ).toFirebaseMap(),
         );
 
-    final recipientRef = db.ref('userChats/${widget.otherUid}/$cid');
+    final recipientRef = db.ref('userChats/$_otherUid/$cid');
     await recipientRef.update({
       'otherUid': uid,
       'otherName':
@@ -377,7 +381,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     // queues these and flushes on reconnect.
     unawaited(newRef.set(message.toFirebaseMap()));
     unawaited(sendPrivateChatPushNotification(
-      otherUid: widget.otherUid,
+      otherUid: _otherUid,
       chatId: cid,
       senderName: _currentSenderName,
       messageBody: trimmed,
@@ -487,7 +491,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
 
       await _writeChatSummaries(uid, cid, label, timestamp);
       unawaited(sendPrivateChatPushNotification(
-        otherUid: widget.otherUid,
+        otherUid: _otherUid,
         chatId: cid,
         senderName: _currentSenderName,
         messageBody: label,
@@ -852,7 +856,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         await LocalChatStore.instance.insert(cid, message);
         await _writeChatSummaries(uid, cid, '🎤 Voice message', timestamp);
         unawaited(sendPrivateChatPushNotification(
-          otherUid: widget.otherUid,
+          otherUid: _otherUid,
           chatId: cid,
           senderName: _currentSenderName,
           messageBody: '🎤 Voice message',
@@ -879,7 +883,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     await startPrivateAppCall(
       context: context,
       caller: profile,
-      calleeUid: widget.otherUid,
+      calleeUid: _otherUid,
       calleeName: _otherUserName.isEmpty ? 'Chat' : _otherUserName,
       callType: callType,
     );
@@ -942,7 +946,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     await LocalChatStore.instance.insert(cid, message);
     await _writeChatSummaries(uid, cid, '🩹 Sticker', timestamp);
     unawaited(sendPrivateChatPushNotification(
-      otherUid: widget.otherUid,
+      otherUid: _otherUid,
       chatId: cid,
       senderName: _currentSenderName,
       messageBody: '🩹 Sticker',
@@ -1255,7 +1259,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
               const SizedBox(height: 18),
               _profileInfoRow(
                 Icons.phone,
-                _otherUserPhone.isEmpty ? 'Number not available' : _otherUserPhone,
+                _otherUserPhone.isEmpty
+                    ? 'Number not available'
+                    : formatPhoneForDisplay(_otherUserPhone),
               ),
               if (country.isNotEmpty) ...[
                 const SizedBox(height: 12),

@@ -210,6 +210,22 @@ class AuthManager {
     await prefs.setInt('${_prefsPrefix}createdAt', profile.createdAt);
   }
 
+  /// Re-points this device's cached account at [e164] after the account
+  /// was moved from a malformed key (see AccountSelfRepair).
+  static Future<void> adoptRepairedAccountId(String e164) async {
+    final cached = await getCachedProfile();
+    if (cached == null) return;
+    await _cacheProfileLocally(UserProfile(
+      uid: e164,
+      name: cached.name,
+      phone: e164,
+      country: countryOfPhone(e164) ?? cached.country,
+      photoUrl: cached.photoUrl,
+      createdAt: cached.createdAt,
+    ));
+    _authLinkChecked = false;
+  }
+
   static Future<void> clearCachedProfile() async {
     await clearClaimMarker();
     final prefs = await SharedPreferences.getInstance();
@@ -252,8 +268,9 @@ class AuthManager {
     return base64Encode(bytes);
   }
 
-  /// Mirrors saveProfile(): shares the SAME normalizePhone() path used
-  /// elsewhere in the app — see the ⚠️ stub warning in phone_utils.dart.
+  /// Saves the profile under the strict E.164 form of [phone] — the one
+  /// normalizePhone() used everywhere else; [countryIso] is the default
+  /// country for a number typed without a country code.
   static Future<void> saveProfile({
     required String name,
     required String phone,
@@ -266,11 +283,14 @@ class AuthManager {
     // flow rather than dead-ending. Gets the normalised E.164.
     void Function(String e164Phone)? onAlreadyRegistered,
   }) async {
-    final e164Phone = normalizePhone(phone.trim(), countryIso);
+    final e164Phone = normalizePhone(phone, defaultCountry: countryIso);
     if (e164Phone == null) {
       onError("That doesn't look like a valid phone number");
       return;
     }
+    // The number's own country, not just the picker's — they differ when
+    // someone types a full +CC number.
+    final country = countryOfPhone(e164Phone) ?? countryIso;
 
     try {
       final thisDeviceId = await deviceId();
@@ -312,7 +332,7 @@ class AuthManager {
         uid: e164Phone,
         name: name.trim(),
         phone: e164Phone,
-        country: countryIso,
+        country: country,
         photoUrl: finalPhotoUrl,
         createdAt: finalCreatedAt,
         // Claims this phone number for THIS device — see deviceId() doc.

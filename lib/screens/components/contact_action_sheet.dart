@@ -26,9 +26,7 @@ Future<void> showContactActionSheet({
   return showModalBottomSheet(
     context: context,
     builder: (context) {
-      final number = contact.phone.startsWith('+')
-          ? formatPhoneForDisplay(contact.phone)
-          : contact.phone;
+      final number = formatPhoneForDisplay(contact.phone);
       return SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

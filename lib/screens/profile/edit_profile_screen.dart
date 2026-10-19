@@ -8,7 +8,9 @@ import 'package:image_picker/image_picker.dart';
 import '../../data/profile_photo_cache.dart';
 import '../../data/user_profile.dart';
 import '../auth/auth_manager.dart';
+import '../../util/phone_utils.dart';
 import '../components/full_screen_profile_photo.dart';
+import '../components/phone_number_field.dart';
 import 'square_crop_screen.dart';
 
 /// Flutter port of the Kotlin/Compose `UserProfileIdentityScreen` — the
@@ -36,8 +38,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   static const _accent = Color(0xFF102A72);
 
   final _nameCtrl = TextEditingController();
-  final _phoneCtrl = TextEditingController();
-  final _countryCtrl = TextEditingController();
+  // From PhoneNumberField: strict E.164 (null while invalid) and its country.
+  String? _phoneE164;
+  String _phoneCountry = kDefaultCountry;
 
   UserProfile? _loaded;
   bool _firstLoadDone = false;
@@ -56,8 +59,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   void dispose() {
     _nameCtrl.dispose();
-    _phoneCtrl.dispose();
-    _countryCtrl.dispose();
     super.dispose();
   }
 
@@ -88,16 +89,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void _applyLoaded(UserProfile p) {
     _loaded = p;
     _nameCtrl.text = p.name;
-    _phoneCtrl.text = p.phone;
-    _countryCtrl.text = p.country;
+    _phoneE164 = p.phone;
+    _phoneCountry = p.country.isEmpty ? kDefaultCountry : p.country;
   }
 
   bool get _isDirty {
     final l = _loaded;
     if (l == null) return false;
     return _nameCtrl.text != l.name ||
-        _phoneCtrl.text != l.phone ||
-        _countryCtrl.text != l.country ||
+        _phoneE164 != l.phone ||
         _pendingPhotoPath != null;
   }
 
@@ -250,15 +250,44 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     if (!_canSave) return;
 
     final name = _nameCtrl.text.trim();
-    final phone = _phoneCtrl.text.trim();
-    final country = _countryCtrl.text.trim();
+    final phone = _phoneE164;
 
-    if (name.isEmpty || phone.isEmpty || country.isEmpty) {
+    if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Name, phone number and country are all required')),
+        const SnackBar(content: Text('Please enter your name')),
       );
       return;
+    }
+    if (phone == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text("That doesn't look like a valid phone number — "
+                'check the digits and the country.')),
+      );
+      return;
+    }
+    // The number IS the account id. A different number means a different
+    // account (chats stay with the old one), so say so before switching.
+    final current = _loaded!.uid;
+    if (phone != current && phone != repairStoredPhone(current)) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Change phone number?'),
+          content: Text('Your account is tied to your phone number. Saving '
+              '${formatPhoneForDisplay(phone)} switches this device to that '
+              'number; your chats stay with ${formatPhoneForDisplay(current)}.'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Change number')),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
     }
 
     setState(() => _saving = true);
@@ -266,7 +295,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     await AuthManager.saveProfileWithPhoto(
       name: name,
       phone: phone,
-      countryIso: country.toUpperCase(),
+      countryIso: _phoneCountry,
       newPhotoPath: _pendingPhotoPath,
       onSuccess: () async {
         final fresh = await AuthManager.getCachedProfile();
@@ -357,19 +386,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         decoration: _decoration('Account name'),
                       ),
                       const SizedBox(height: 16),
-                      TextField(
-                        controller: _phoneCtrl,
-                        keyboardType: TextInputType.phone,
-                        onChanged: (_) => setState(() {}),
-                        decoration: _decoration('Phone number'),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _countryCtrl,
-                        maxLength: 2,
-                        textCapitalization: TextCapitalization.characters,
-                        onChanged: (_) => setState(() {}),
-                        decoration: _decoration('Country code', counter: 0),
+                      PhoneNumberField(
+                        // Rebuild with the fresh value after the background
+                        // refresh replaces the cached profile.
+                        key: ValueKey(_loaded!.phone),
+                        initialCountry: _phoneCountry,
+                        initialNumber: _loaded!.phone,
+                        border: _border(const Color(0xFFD1D5DB)),
+                        onChanged: (e164, country) => setState(() {
+                          _phoneE164 = e164;
+                          _phoneCountry = country;
+                        }),
                       ),
                       const SizedBox(height: 24),
                       SizedBox(

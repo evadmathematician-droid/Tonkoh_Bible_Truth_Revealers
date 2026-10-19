@@ -18,6 +18,13 @@
       }
     },
 
+    "phoneAliases": {
+      ".read": "auth != null",
+      "$oldKey": {
+        ".write": "auth != null && !data.exists() && newData.isString() && root.child('users').child(newData.val() + '').child('authUid').val() === auth.uid"
+      }
+    },
+
     "admins": {
       ".read": "auth != null",
       ".write": false

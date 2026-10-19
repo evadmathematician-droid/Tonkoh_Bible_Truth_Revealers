@@ -46,3 +46,6 @@ app.*.map.json
 
 # Android build reports
 /android/build/
+
+# Firebase data exports and fix reports (contain user data)
+/backups/

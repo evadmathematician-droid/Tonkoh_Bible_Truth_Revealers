@@ -1,38 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:intl_phone_field/countries.dart';
-import 'package:intl_phone_field/intl_phone_field.dart';
 
+import '../../util/phone_utils.dart';
 import '../auth/auth_manager.dart';
+import '../components/phone_number_field.dart';
 import 'account_migration_screen.dart';
-
-// Countries pinned to the top of the picker — this app's core user base.
-// Everyone else picks their own country from the full ISO list the
-// package ships, so users from any country are fully supported.
-const List<String> _priorityIso = ['SL', 'GN', 'LR', 'GH', 'NG'];
-
-/// Full ISO country list with the priority countries hoisted to the top.
-List<Country> _orderedCountries() {
-  final priority = <Country>[];
-  for (final iso in _priorityIso) {
-    final match = countries.where((c) => c.code == iso);
-    if (match.isNotEmpty) priority.add(match.first);
-  }
-  final rest = countries.where((c) => !_priorityIso.contains(c.code)).toList();
-  return [...priority, ...rest];
-}
-
-/// Best-guess starting country so most people never have to open the
-/// picker. Device locale country if we recognise it, otherwise Sierra
-/// Leone. This is ONLY the pre-selection — it is always overridable, and
-/// it is never assumed once the user has picked or typed a number.
-String _defaultCountryIso() {
-  final localeCountry =
-      WidgetsBinding.instance.platformDispatcher.locale.countryCode;
-  if (localeCountry != null && RegExp(r'^[A-Za-z]{2}$').hasMatch(localeCountry)) {
-    return localeCountry.toUpperCase();
-  }
-  return 'SL';
-}
 
 class ProfileSetupScreen extends StatefulWidget {
   final VoidCallback onDone;
@@ -45,16 +16,14 @@ class ProfileSetupScreen extends StatefulWidget {
 class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   final _nameController = TextEditingController();
 
-  late String _countryIso;
-  // Full international number the picker produced, e.g. "+23376123456".
-  String _completeNumber = '';
+  // Sierra Leone unless the user picks another country. Deliberately NOT
+  // the phone's locale: a UK-locale phone in Freetown turned "034909376"
+  // into "+44034909376".
+  String _countryIso = kDefaultCountry;
+  // Strict E.164 from PhoneNumberField, null while the number is invalid.
+  String? _e164;
+  bool _hasTypedNumber = false;
   bool _isSaving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _countryIso = _defaultCountryIso();
-  }
 
   @override
   void dispose() {
@@ -73,21 +42,24 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       _showSnack('Please enter your name');
       return;
     }
-    if (_completeNumber.trim().isEmpty) {
+    if (!_hasTypedNumber) {
       _showSnack('Please enter your phone number');
+      return;
+    }
+    final e164 = _e164;
+    if (e164 == null) {
+      _showSnack("That doesn't look like a valid phone number — check the "
+          'digits and the country.');
       return;
     }
 
     setState(() => _isSaving = true);
 
-    // AuthManager.saveProfile runs the SAME normalizePhone() path used for
-    // contact matching. We hand it the already-international number (with
-    // its "+" and dial code from the picker) plus the selected ISO, so the
-    // stored value is correct global E.164 for ANY country — no "+232"
-    // assumption anywhere.
+    // Only the normalized E.164 is saved (AuthManager re-checks it with the
+    // same normalizePhone()).
     await AuthManager.saveProfile(
       name: name,
-      phone: _completeNumber.trim(),
+      phone: e164,
       countryIso: _countryIso,
       onSuccess: () {
         if (!mounted) return;
@@ -192,23 +164,12 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      IntlPhoneField(
-                        initialCountryCode: _countryIso,
-                        countries: _orderedCountries(),
-                        disableLengthCheck: false,
-                        invalidNumberMessage: 'Invalid phone number',
-                        decoration: InputDecoration(
-                          labelText: 'Phone number',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        onCountryChanged: (country) {
-                          setState(() => _countryIso = country.code);
-                        },
-                        onChanged: (phone) {
-                          _completeNumber = phone.completeNumber;
-                          _countryIso = phone.countryISOCode;
+                      PhoneNumberField(
+                        initialCountry: _countryIso,
+                        onChanged: (e164, country) {
+                          _e164 = e164;
+                          _countryIso = country;
+                          _hasTypedNumber = true;
                         },
                       ),
                       const SizedBox(height: 20),

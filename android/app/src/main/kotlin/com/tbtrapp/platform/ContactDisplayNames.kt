@@ -28,6 +28,18 @@ object ContactDisplayNames {
         } catch (_: Exception) {
             null
         }
-        return saved ?: uid
+        return saved ?: formatForDisplay(uid)
+    }
+
+    /**
+     * Same grouping as formatPhoneForDisplay in lib/util/phone_utils.dart
+     * for Sierra Leone numbers ("+23231932652" → "+232 31 932 652");
+     * anything else is shown as stored.
+     */
+    fun formatForDisplay(uid: String): String {
+        val m = Regex("^\\+232(\\d{2})(\\d{3})(\\d{3})$").find(uid.trim())
+            ?: return uid
+        val (a, b, c) = m.destructured
+        return "+232 $a $b $c"
     }
 }

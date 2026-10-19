@@ -1,5 +1,7 @@
 import 'package:firebase_database/firebase_database.dart';
 
+import '../util/phone_utils.dart';
+
 /// One feedback submission. Mirrors the Kotlin `FeedbackDataModel` and the
 /// shape `AdminScreen`'s [FeedbackItem] already reads back from
 /// `feedback/{pushId}`.
@@ -41,7 +43,9 @@ class FeedbackRepository {
     final model = FeedbackModel(
       type: type,
       message: message.trim(),
-      phone: phone.trim(),
+      // Strict E.164 when it's a valid number; otherwise kept as typed so
+      // the message still reaches the admin.
+      phone: normalizePhone(phone) ?? phone.trim(),
       timestamp: DateTime.now().millisecondsSinceEpoch,
     );
     await _ref.push().set(model.toMap());

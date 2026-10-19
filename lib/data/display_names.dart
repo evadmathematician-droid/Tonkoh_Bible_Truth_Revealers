@@ -1,10 +1,13 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:phone_numbers_parser/phone_numbers_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../util/phone_utils.dart';
 import 'app_contact.dart';
+import 'phone_aliases.dart';
+
+export '../util/phone_utils.dart' show formatPhoneForDisplay;
 
 /// WhatsApp-style naming, used everywhere a person is shown (chat list,
 /// chat header, audio feed, calls, notifications):
@@ -79,37 +82,31 @@ class DisplayNames extends ChangeNotifier {
 
 /// Saved-contact names keyed by both the user's id and phone (they're the
 /// same E.164 string for every current account, but older records may
-/// differ).
+/// differ). Both are canonicalised so lookups match.
 Map<String, String> savedNamesFrom(List<AppContact> onApp) {
   final out = <String, String>{};
   for (final c in onApp) {
     final name = c.name.trim();
     if (name.isEmpty) continue;
     final uid = c.uid;
-    if (uid != null && uid.isNotEmpty) out[uid] = name;
-    if (c.phone.isNotEmpty) out.putIfAbsent(c.phone, () => name);
+    if (uid != null && uid.isNotEmpty) {
+      out[uid] = name;
+      out.putIfAbsent(canonicalUserId(uid), () => name);
+    }
+    if (c.phone.isNotEmpty) {
+      out.putIfAbsent(c.phone, () => name);
+      out.putIfAbsent(canonicalUserId(c.phone), () => name);
+    }
   }
   return out;
 }
 
 /// Saved name if [uid] is in [saved], otherwise the formatted number.
+/// [uid] may come from old data (`+031932652`, a moved account key), so
+/// the canonical id is looked up too.
 String resolveDisplayName(String uid, Map<String, String> saved) {
-  final name = saved[uid];
+  final name = saved[uid] ?? saved[resolveUserId(uid)];
   if (name != null && name.trim().isNotEmpty) return name;
   if (uid.isEmpty) return 'Unknown';
-  return formatPhoneForDisplay(uid);
-}
-
-/// "+23276123456" → "+232 76 123456" (international, grouped the way the
-/// country writes it). Anything that doesn't parse is returned unchanged.
-String formatPhoneForDisplay(String e164) {
-  final raw = e164.trim();
-  if (!raw.startsWith('+')) return raw;
-  try {
-    final p = PhoneNumber.parse(raw);
-    final nsn = p.formatNsn();
-    return '+${p.countryCode} $nsn';
-  } catch (_) {
-    return raw;
-  }
+  return formatPhoneForDisplay(resolveUserId(uid));
 }

@@ -13,6 +13,7 @@ import '../../data/private_message.dart';
 import '../../util/base64_image_cache.dart';
 import '../../services/share_service.dart';
 import '../../widgets/media_download_button.dart';
+import '../components/profile_avatar.dart' show avatarInitials;
 import '../media/cached_audio_tile.dart';
 import '../media/network_video_screen.dart';
 
@@ -35,6 +36,20 @@ class AvatarView extends StatelessWidget {
     this.size = 28,
   });
 
+  // Initials when the name has letters, otherwise a person icon — an
+  // unsaved contact's name is their number, and "+" is not an initial.
+  Widget _fallback() {
+    final initials = avatarInitials(displayName, max: 1);
+    if (initials.isEmpty) {
+      return Icon(Icons.person, size: size * 0.6, color: _kBrand);
+    }
+    return Text(
+      initials,
+      style: TextStyle(
+          fontSize: size * 0.4, color: _kBrand, fontWeight: FontWeight.bold),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     ImageProvider? image;
@@ -49,15 +64,7 @@ class AvatarView extends StatelessWidget {
       radius: size / 2,
       backgroundColor: _kBrand.withValues(alpha: 0.15),
       backgroundImage: image,
-      child: image == null
-          ? Text(
-              displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
-              style: TextStyle(
-                  fontSize: size * 0.4,
-                  color: _kBrand,
-                  fontWeight: FontWeight.bold),
-            )
-          : null,
+      child: image == null ? _fallback() : null,
     );
   }
 }

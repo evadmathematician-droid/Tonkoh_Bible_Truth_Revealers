@@ -6,7 +6,7 @@ import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:phone_numbers_parser/phone_numbers_parser.dart';
 
 import '../screens/auth/auth_manager.dart';
-import '../util/phone_utils.dart' show defaultRegion;
+import '../util/phone_utils.dart' show kDefaultCountry;
 import 'app_contact.dart';
 import 'sim_contacts.dart';
 
@@ -63,7 +63,7 @@ class ContactsRepository {
     }
 
     add((await AuthManager.getCachedProfile())?.country);
-    add(defaultRegion());
+    add(kDefaultCountry);
     for (final r in _fallbackRegions) {
       add(r);
     }

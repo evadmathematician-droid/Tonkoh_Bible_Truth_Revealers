@@ -3,6 +3,24 @@ import 'package:flutter/material.dart';
 import '../../data/profile_photo_cache.dart';
 import '../../util/base64_image_cache.dart';
 
+/// Up to two initials taken from the words of [name] that start with a
+/// letter — so "+232 31 932 652" (an unsaved contact shown by number) gives
+/// none and the caller draws a person icon instead of a "+".
+String avatarInitials(String name, {int max = 2}) {
+  final letter = RegExp(r'\p{L}', unicode: true);
+  final out = <String>[];
+  for (final word in name.trim().split(RegExp(r'\s+'))) {
+    if (word.isEmpty) continue;
+    // By code point, not code unit: names in styled Unicode letters
+    // (𝑆𝑎𝑚𝑢𝑒𝑙) are surrogate pairs.
+    final first = String.fromCharCode(word.runes.first);
+    if (!letter.hasMatch(first)) continue;
+    out.add(first.toUpperCase());
+    if (out.length == max) break;
+  }
+  return out.join();
+}
+
 class ProfileAvatar extends StatelessWidget {
   final String name;
   final String? photoUrl; // Base64
@@ -19,10 +37,18 @@ class ProfileAvatar extends StatelessWidget {
 
   Uint8List? _decodedBytes() => Base64ImageCache.decode(photoUrl);
 
-  String get _initials {
-    final parts = name.trim().split(' ').where((p) => p.isNotEmpty).take(2);
-    final result = parts.map((p) => p[0].toUpperCase()).join();
-    return result.isEmpty ? '?' : result;
+  /// Initials when the name has letters; a person icon for a bare number
+  /// (unsaved contacts are shown by number, whose first character is "+").
+  Widget _fallback() {
+    final initials = avatarInitials(name);
+    if (initials.isEmpty) {
+      return Icon(Icons.person, color: Colors.white, size: size * 0.6);
+    }
+    return Text(
+      initials,
+      style: TextStyle(
+          color: Colors.white, fontWeight: FontWeight.bold, fontSize: size / 2.6),
+    );
   }
 
   static const _palette = [
@@ -58,13 +84,10 @@ class ProfileAvatar extends StatelessWidget {
                 cacheHeight: decodePx,
               )
             : Container(
-          color: _colorForName,
-          alignment: Alignment.center,
-          child: Text(
-            _initials,
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: size / 2.6),
-          ),
-        ),
+                color: _colorForName,
+                alignment: Alignment.center,
+                child: _fallback(),
+              ),
       ),
     );
 

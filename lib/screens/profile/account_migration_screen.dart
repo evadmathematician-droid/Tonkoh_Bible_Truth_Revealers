@@ -200,7 +200,7 @@ class _AccountMigrationScreenState extends State<AccountMigrationScreen> {
       return;
     }
     final normalised =
-        raw.map((s) => normalizePhone(s, widget.countryIso)).toList();
+        raw.map((s) => normalizePhone(s, defaultCountry: widget.countryIso)).toList();
     if (normalised.any((n) => n == null)) {
       setState(() => _error = "One of those doesn't look like a valid number.");
       return;

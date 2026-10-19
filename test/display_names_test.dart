@@ -36,8 +36,12 @@ void main() {
       expect(f.replaceAll(' ', ''), '+23276123456');
     });
 
-    test('leaves non-E.164 text alone', () {
-      expect(formatPhoneForDisplay('076123456'), '076123456');
+    test('repairs a stored national number before showing it', () {
+      expect(formatPhoneForDisplay('076123456'), '+232 76 123 456');
+    });
+
+    test('leaves non-phone text alone', () {
+      expect(formatPhoneForDisplay('Pastor John'), 'Pastor John');
     });
   });
 

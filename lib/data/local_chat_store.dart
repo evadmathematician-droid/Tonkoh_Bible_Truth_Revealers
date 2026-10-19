@@ -181,6 +181,34 @@ class LocalChatStore {
     }
   }
 
+  /// Re-keys local history after an account id changed from [oldUid] to
+  /// [newUid] (AccountSelfRepair): chat ids are built from both
+  /// participants' ids, so every conversation of the old id moves to the
+  /// new chat id, and the user's own messages get the new sender id.
+  Future<void> renameUser(String oldUid, String newUid) async {
+    if (kIsWeb || oldUid == newUid) return;
+    final db = await _database;
+    final rows = await db.rawQuery(
+        'SELECT DISTINCT chatId FROM messages WHERE chatId LIKE ? OR chatId LIKE ?',
+        ['${oldUid}_%', '%_$oldUid']);
+    await db.transaction((txn) async {
+      for (final r in rows) {
+        final oldCid = r['chatId'] as String;
+        final parts = oldCid.split('_');
+        if (parts.length != 2 || !parts.contains(oldUid)) continue;
+        final other = parts[0] == oldUid ? parts[1] : parts[0];
+        final ids = [newUid, other == oldUid ? newUid : other]..sort();
+        final newCid = ids.join('_');
+        await txn.rawUpdate(
+            'UPDATE OR IGNORE messages SET chatId = ? WHERE chatId = ?',
+            [newCid, oldCid]);
+        await txn.delete('messages', where: 'chatId = ?', whereArgs: [oldCid]);
+      }
+      await txn.rawUpdate('UPDATE messages SET senderId = ? WHERE senderId = ?',
+          [newUid, oldUid]);
+    });
+  }
+
   Future<List<PrivateMessage>> _fetch(String chatId) async {
     if (kIsWeb) {
       return List<PrivateMessage>.from(_memStore[chatId] ?? const []);

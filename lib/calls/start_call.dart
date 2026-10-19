@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../data/phone_aliases.dart';
 import '../data/user_profile.dart';
 import '../navigation/call_navigator.dart';
 import '../screens/chat/chat_helpers.dart' show privateChatId;
@@ -45,6 +46,9 @@ Future<void> startPrivateAppCall({
     }
     return;
   }
+
+  // Old data can hand us a malformed or moved account id.
+  calleeUid = resolveUserId(calleeUid);
 
   _dialInFlight = true;
   try {
