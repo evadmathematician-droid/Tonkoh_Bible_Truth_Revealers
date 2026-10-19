@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../calls/start_call.dart';
 import '../data/app_contact.dart';
@@ -26,7 +27,10 @@ import '../screens/audio/audio_drawer_content.dart';
 import '../screens/audio/audio_feed_list.dart';
 import '../screens/audio/reply_target.dart';
 import '../screens/audio/upload_sheet.dart';
+import '../data/feed_item.dart';
 import '../data/sermon_audio.dart';
+import '../links/link_preview.dart';
+import '../links/typed_link_preview.dart';
 
 class AudioScreen extends StatefulWidget {
   const AudioScreen({super.key});
@@ -35,15 +39,124 @@ class AudioScreen extends StatefulWidget {
   State<AudioScreen> createState() => _AudioScreenState();
 }
 
-class _AudioScreenState extends State<AudioScreen> {
+class _AudioScreenState extends State<AudioScreen> with WidgetsBindingObserver {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
-  final _chatController = ScrollController();
+  final _itemScroll = ItemScrollController();
+  final _itemPositions = ItemPositionsListener.create();
   final _messageController = TextEditingController();
 
   String? _viewingImageUrl;
   ReplyTarget? _replyTarget;
   String? _longPressMenuFor;
-  bool _initialScrollDone = false;
+  LinkPreview? _composerLink;
+
+  // Decided once per visit, from the phone's copy of the feed: where the
+  // list opens and where the "N new messages" divider sits.
+  bool _opened = false;
+  int _initialIndex = 0;
+  double _initialAlignment = 0;
+  String? _dividerId;
+  int _dividerCount = 0;
+  final Stopwatch _openWatch = Stopwatch()..start();
+
+  // The post anchored at the bottom of the view, kept in place when new
+  // posts are added below it.
+  String? _anchorId;
+  double _anchorAlignment = 0;
+  bool _atNewest = true;
+  int _lastItemCount = 0;
+  Timer? _saveTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _itemPositions.itemPositions.addListener(_onPositions);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _savePosition();
+    }
+  }
+
+  void _openFrom(AudioFeedProvider feed) {
+    final items = feed.feedItems;
+    final start = initialFeedScroll(items, feed.savedPosition);
+    _initialIndex = start.index;
+    _initialAlignment = start.alignment;
+    final divider =
+        unreadDivider(items, feed.lastReadTimestamp, myUid: feed.currentUid);
+    _dividerId = divider.firstUnreadId;
+    _dividerCount = divider.count;
+    _atNewest = start.index == 0;
+    _lastItemCount = items.length;
+    if (items.isNotEmpty) {
+      _anchorId = items[items.length - 1 - start.index].id;
+      _anchorAlignment = start.alignment;
+    }
+    // First install: everything already there counts as read.
+    if (feed.lastReadTimestamp <= 0 && items.isNotEmpty) {
+      feed.markReadUpTo(items.last.timestamp);
+    }
+    _opened = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      debugPrint('[FeedOpen] ${items.length} posts visible after '
+          '${_openWatch.elapsedMilliseconds} ms (from the phone)');
+    });
+  }
+
+  /// Tracks the bottom-most visible post, marks what is seen as read, and
+  /// saves the position shortly after scrolling stops.
+  void _onPositions() {
+    final items = _feed.feedItems;
+    final positions = _itemPositions.itemPositions.value
+        .where((p) => p.itemTrailingEdge > 0 && p.itemLeadingEdge < 1)
+        .toList();
+    if (items.isEmpty || positions.isEmpty) return;
+    positions.sort((a, b) => a.index.compareTo(b.index));
+    final bottom = positions.first;
+    final i = items.length - 1 - bottom.index;
+    if (i < 0 || i >= items.length) return;
+    _anchorId = items[i].id;
+    _anchorAlignment = bottom.itemLeadingEdge.clamp(0.0, 0.95).toDouble();
+    _atNewest = bottom.index == 0 && bottom.itemLeadingEdge <= 0.02;
+    _feed.markReadUpTo(items[i].timestamp);
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 400), _savePosition);
+  }
+
+  void _savePosition() {
+    final id = _anchorId;
+    if (id == null || !mounted) return;
+    final item = _feed.feedItems.where((f) => f.id == id).firstOrNull;
+    if (item == null) return;
+    _feed.savePosition(FeedPosition(
+      itemId: id,
+      itemTimestamp: item.timestamp,
+      alignment: _anchorAlignment,
+      atNewest: _atNewest,
+    ));
+  }
+
+  /// New posts were added at the bottom while I'm reading further up: keep
+  /// the same post at the same place (the reversed list's indices shifted).
+  void _keepAnchor(List<FeedItem> items) {
+    if (items.length == _lastItemCount) return;
+    _lastItemCount = items.length;
+    if (_atNewest || _anchorId == null) return;
+    final i = items.indexWhere((f) => f.id == _anchorId);
+    if (i == -1) return;
+    final index = items.length - 1 - i;
+    final alignment = _anchorAlignment;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_itemScroll.isAttached) {
+        _itemScroll.jumpTo(index: index, alignment: alignment);
+      }
+    });
+  }
 
   AudioFeedProvider get _feed => context.read<AudioFeedProvider>();
   GlobalAudioPlayer get _player => context.read<GlobalAudioPlayer>();
@@ -308,11 +421,13 @@ class _AudioScreenState extends State<AudioScreen> {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
+    final link = _composerLink;
     await _feed.sendTextMessage(
       text,
       replyToId: _replyTarget?.id,
       replyToType: _replyTarget?.type,
       replyToPreview: _replyTarget?.preview,
+      link: link != null && text.contains(link.url) ? link : null,
     );
 
     sendAudioPushNotification(
@@ -322,32 +437,28 @@ class _AudioScreenState extends State<AudioScreen> {
     );
 
     _messageController.clear();
-    setState(() => _replyTarget = null);
-
-    Future.delayed(const Duration(milliseconds: 200), () {
-      final items = _feed.feedItems;
-      if (items.isNotEmpty && _chatController.hasClients) {
-        _chatController.animateTo(
-          _chatController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-        _feed.markReadUpTo(items.last.timestamp);
-      }
+    setState(() {
+      _replyTarget = null;
+      _composerLink = null;
     });
+    Future.delayed(
+        const Duration(milliseconds: 200), _scrollToBottomAndMarkRead);
   }
 
   void _scrollToBottomAndMarkRead() {
     final items = _feed.feedItems;
-    if (items.isEmpty) return;
-    if (_chatController.hasClients) {
-      _chatController.animateTo(
-        _chatController.position.maxScrollExtent,
+    if (items.isEmpty || !mounted) return;
+    _atNewest = true;
+    if (_itemScroll.isAttached) {
+      _itemScroll.scrollTo(
+        index: 0,
+        alignment: 0,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,
       );
     }
     _feed.markReadUpTo(items.last.timestamp);
+    setState(() => _dividerId = null);
   }
 
   @override
@@ -355,10 +466,8 @@ class _AudioScreenState extends State<AudioScreen> {
     final feed = context.watch<AudioFeedProvider>();
     final feedItems = feed.feedItems;
 
-    if (!_initialScrollDone && feedItems.isNotEmpty) {
-      _initialScrollDone = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {});
-    }
+    if (!_opened && feed.localLoaded) _openFrom(feed);
+    if (_opened) _keepAnchor(feedItems);
 
     return Scaffold(
       key: _scaffoldKey,
@@ -420,13 +529,24 @@ class _AudioScreenState extends State<AudioScreen> {
                       ),
                   ],
                 ),
-                const Text(
-                  'TONKOH  BIBLE  TRUTH  REVEALERS',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                      color: Color(0xFF102A72)),
+                const Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      'TONKOH  BIBLE  TRUTH  REVEALERS',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                          color: Color(0xFF102A72)),
+                    ),
+                  ),
                 ),
+                // Never blocks the screen — just says what the feed is doing.
+                if (!feed.online)
+                  const _SyncChip(label: 'Offline', icon: Icons.cloud_off)
+                else if (feed.updating)
+                  const _SyncChip(label: 'Updating…', icon: Icons.sync),
+                const SizedBox(width: 8),
               ],
             ),
           ),
@@ -450,50 +570,66 @@ class _AudioScreenState extends State<AudioScreen> {
             ),
             const SizedBox(height: 4),
             Expanded(
-              child: AudioFeedList(
-                feedItems: feedItems,
-                scrollController: _chatController,
-                reactionsMap: feed.reactionsMap,
-                longPressMenuFor: _longPressMenuFor,
-                onLongPress: (id) => setState(() => _longPressMenuFor = id),
-                onDismissLongPressMenu: () =>
-                    setState(() => _longPressMenuFor = null),
-                onReact: (itemId, emoji) {
-                  feed.addReaction(itemId, emoji);
-                  setState(() => _longPressMenuFor = null);
-                },
-                onReply: (target) => setState(() {
-                  _replyTarget = target;
-                  _longPressMenuFor = null;
-                }),
-                onDelete: (itemId, _) => feed.hideLocally(itemId),
-                onAudioPlayPauseClick: _handleAudioPlayPauseClick,
-                onShareAudio: _shareAudio,
-                onShareVideo: _shareVideo,
-                onSeekChange: (sermon, value) {
-                  if (_player.nowPlaying?.id == sermon.id) {
-                    _player.beginScrub();
-                    _player.positionMs = value.toInt();
-                  }
-                },
-                onSeekFinished: (sermon) {
-                  if (_player.nowPlaying?.id == sermon.id) {
-                    _player.seekTo(_player.positionMs);
-                  }
-                },
-                onImageClick: (url) => setState(() => _viewingImageUrl = url),
-                onVideoTap: _handleVideoTap,
-                unreadCount: feed.unreadCount,
-                onJumpToBottom: _scrollToBottomAndMarkRead,
-                viewingImageUrl: _viewingImageUrl,
-                onDismissImage: () => setState(() => _viewingImageUrl = null),
-                currentUid: feed.currentUid,
-                onSenderTap: _openMemberSheet,
-              ),
+              // Drawn once the phone's copy is read (a few ms after launch)
+              // so it opens at the right post, never at the top.
+              child: !_opened
+                  ? const SizedBox.shrink()
+                  : AudioFeedList(
+                      feedItems: feedItems,
+                      itemScrollController: _itemScroll,
+                      itemPositionsListener: _itemPositions,
+                      initialScrollIndex: _initialIndex,
+                      initialAlignment: _initialAlignment,
+                      unreadDividerId: _dividerId,
+                      unreadDividerCount: _dividerCount,
+                      reactionsMap: feed.reactionsMap,
+                      longPressMenuFor: _longPressMenuFor,
+                      onLongPress: (id) =>
+                          setState(() => _longPressMenuFor = id),
+                      onDismissLongPressMenu: () =>
+                          setState(() => _longPressMenuFor = null),
+                      onReact: (itemId, emoji) {
+                        feed.addReaction(itemId, emoji);
+                        setState(() => _longPressMenuFor = null);
+                      },
+                      onReply: (target) => setState(() {
+                        _replyTarget = target;
+                        _longPressMenuFor = null;
+                      }),
+                      onDelete: (itemId, _) => feed.hideLocally(itemId),
+                      onAudioPlayPauseClick: _handleAudioPlayPauseClick,
+                      onShareAudio: _shareAudio,
+                      onShareVideo: _shareVideo,
+                      onSeekChange: (sermon, value) {
+                        if (_player.nowPlaying?.id == sermon.id) {
+                          _player.beginScrub();
+                          _player.positionMs = value.toInt();
+                        }
+                      },
+                      onSeekFinished: (sermon) {
+                        if (_player.nowPlaying?.id == sermon.id) {
+                          _player.seekTo(_player.positionMs);
+                        }
+                      },
+                      onImageClick: (url) =>
+                          setState(() => _viewingImageUrl = url),
+                      onVideoTap: _handleVideoTap,
+                      unreadCount: feed.unreadCount,
+                      onJumpToBottom: _scrollToBottomAndMarkRead,
+                      viewingImageUrl: _viewingImageUrl,
+                      onDismissImage: () =>
+                          setState(() => _viewingImageUrl = null),
+                      currentUid: feed.currentUid,
+                      onSenderTap: _openMemberSheet,
+                    ),
             ),
             // Composer — last child of the body Column so `resizeToAvoidBottom
             // Inset` lifts it clear of the keyboard. It keeps its own
             // `SafeArea(top:false)` for the nav-bar inset.
+            TypedLinkPreview(
+              controller: _messageController,
+              onChanged: (p) => _composerLink = p,
+            ),
             AudioBottomBar(
               controller: _messageController,
               onSend: _sendTextMessage,
@@ -509,8 +645,34 @@ class _AudioScreenState extends State<AudioScreen> {
 
   @override
   void dispose() {
-    _chatController.dispose();
+    _savePosition();
+    _saveTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _itemPositions.itemPositions.removeListener(_onPositions);
     _messageController.dispose();
     super.dispose();
+  }
+}
+
+class _SyncChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  const _SyncChip({required this.label, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0x1A102A72),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 12, color: const Color(0xFF102A72)),
+        const SizedBox(width: 4),
+        Text(label,
+            style: const TextStyle(fontSize: 11, color: Color(0xFF102A72))),
+      ]),
+    );
   }
 }

@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -27,12 +27,19 @@ import 'text_message.dart';
 /// sqflite implementation and falls back to an in-memory store (lost on
 /// refresh).
 class LocalFeedStore {
-  LocalFeedStore._();
-  static final LocalFeedStore instance = LocalFeedStore._();
+  LocalFeedStore({DatabaseFactory? factory, String? path})
+      : _factory = factory,
+        _path = path;
+  static final LocalFeedStore instance = LocalFeedStore();
 
-  static const int _dbVersion = 1;
+  // v2 adds linkJson (rich link previews) to sermons and feed_texts.
+  static const int _dbVersion = 2;
 
-  Database? _db;
+  final DatabaseFactory? _factory;
+  final String? _path;
+  Future<Database>? _opening;
+
+  bool get _inMemory => kIsWeb && _factory == null;
 
   final _sermonsController =
       StreamController<List<SermonAudio>>.broadcast();
@@ -45,12 +52,14 @@ class LocalFeedStore {
   final Map<String, TextMessage> _memTexts = {};
   final Map<String, Map<String, int>> _memReactions = {};
 
-  Future<Database> get _database async {
-    if (_db != null) return _db!;
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, 'local_feed_store.db');
-    _db = await openDatabase(
-      path,
+  Future<Database> get _database => _opening ??= _open();
+
+  Future<Database> _open() async {
+    final factory = _factory ?? databaseFactory;
+    final path =
+        _path ?? join(await factory.getDatabasesPath(), 'local_feed_store.db');
+    return factory.openDatabase(path,
+        options: OpenDatabaseOptions(
       version: _dbVersion,
       onCreate: (db, version) async {
         await db.execute('''
@@ -62,7 +71,8 @@ class LocalFeedStore {
             mediaType TEXT NOT NULL DEFAULT 'AUDIO',
             senderId TEXT NOT NULL DEFAULT '',
             senderName TEXT NOT NULL DEFAULT '',
-            timestamp INTEGER NOT NULL DEFAULT 0
+            timestamp INTEGER NOT NULL DEFAULT 0,
+            linkJson TEXT NOT NULL DEFAULT ''
           )
         ''');
         await db.execute(
@@ -78,7 +88,8 @@ class LocalFeedStore {
             replyToPreview TEXT NOT NULL DEFAULT '',
             senderId TEXT NOT NULL DEFAULT '',
             senderName TEXT NOT NULL DEFAULT '',
-            senderPhone TEXT NOT NULL DEFAULT ''
+            senderPhone TEXT NOT NULL DEFAULT '',
+            linkJson TEXT NOT NULL DEFAULT ''
           )
         ''');
         await db.execute(
@@ -93,8 +104,44 @@ class LocalFeedStore {
           )
         ''');
       },
-    );
-    return _db!;
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          // Additive only — every cached post is kept.
+          await db.execute(
+              "ALTER TABLE sermons ADD COLUMN linkJson TEXT NOT NULL DEFAULT ''");
+          await db.execute(
+              "ALTER TABLE feed_texts ADD COLUMN linkJson TEXT NOT NULL DEFAULT ''");
+        }
+      },
+    ));
+  }
+
+  /// Newest timestamp stored across sermons and text posts (0 when empty):
+  /// the network only needs to bring what came after it.
+  Future<int> latestTimestamp() async {
+    if (_inMemory) {
+      final all = [
+        ..._memSermons.values.map((s) => s.timestamp),
+        ..._memTexts.values.map((t) => t.timestamp),
+      ];
+      return all.isEmpty ? 0 : all.reduce((a, b) => a > b ? a : b);
+    }
+    final db = await _database;
+    final r = await db.rawQuery('SELECT MAX(t) AS m FROM ('
+        'SELECT MAX(timestamp) AS t FROM sermons UNION ALL '
+        'SELECT MAX(timestamp) AS t FROM feed_texts)');
+    return (r.first['m'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Every stored post, oldest first — one read for the first frame.
+  Future<({List<SermonAudio> sermons, List<TextMessage> texts})> loadAll() async =>
+      (sermons: await _fetchSermons(), texts: await _fetchTexts());
+
+  @visibleForTesting
+  Future<void> close() async {
+    final db = await _opening;
+    await db?.close();
+    _opening = null;
   }
 
   // ---------------------------------------------------------------------
@@ -108,7 +155,7 @@ class LocalFeedStore {
   /// every child on any change).
   Future<void> upsertSermons(List<SermonAudio> sermons) async {
     if (sermons.isEmpty) return;
-    if (kIsWeb) {
+    if (_inMemory) {
       for (final s in sermons) {
         _memSermons[s.id] = s;
       }
@@ -126,7 +173,7 @@ class LocalFeedStore {
   }
 
   Future<void> deleteSermon(String id) async {
-    if (kIsWeb) {
+    if (_inMemory) {
       _memSermons.remove(id);
       await _refreshSermons();
       return;
@@ -137,7 +184,7 @@ class LocalFeedStore {
   }
 
   Future<List<SermonAudio>> _fetchSermons() async {
-    if (kIsWeb) {
+    if (_inMemory) {
       final list = _memSermons.values.toList()
         ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       return list;
@@ -167,7 +214,7 @@ class LocalFeedStore {
 
   Future<void> upsertTexts(List<TextMessage> messages) async {
     if (messages.isEmpty) return;
-    if (kIsWeb) {
+    if (_inMemory) {
       for (final m in messages) {
         _memTexts[m.id] = m;
       }
@@ -185,7 +232,7 @@ class LocalFeedStore {
   }
 
   Future<void> deleteText(String id) async {
-    if (kIsWeb) {
+    if (_inMemory) {
       _memTexts.remove(id);
       await _refreshTexts();
       return;
@@ -196,7 +243,7 @@ class LocalFeedStore {
   }
 
   Future<List<TextMessage>> _fetchTexts() async {
-    if (kIsWeb) {
+    if (_inMemory) {
       final list = _memTexts.values.toList()
         ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       return list;
@@ -223,7 +270,7 @@ class LocalFeedStore {
   // ---------------------------------------------------------------------
 
   Future<void> replaceReactions(Map<String, Map<String, int>> reactions) async {
-    if (kIsWeb) {
+    if (_inMemory) {
       _memReactions
         ..clear()
         ..addAll(reactions.map((k, v) => MapEntry(k, Map<String, int>.from(v))));
@@ -246,8 +293,30 @@ class LocalFeedStore {
     await _refreshReactions();
   }
 
+  /// One item's reaction counts changed (or [counts] is empty: removed).
+  Future<void> setItemReactions(String itemId, Map<String, int> counts) async {
+    if (_inMemory) {
+      if (counts.isEmpty) {
+        _memReactions.remove(itemId);
+      } else {
+        _memReactions[itemId] = Map<String, int>.from(counts);
+      }
+      await _refreshReactions();
+      return;
+    }
+    final db = await _database;
+    await db.transaction((txn) async {
+      await txn.delete('feed_reactions', where: 'itemId = ?', whereArgs: [itemId]);
+      for (final e in counts.entries) {
+        await txn.insert('feed_reactions',
+            {'itemId': itemId, 'emoji': e.key, 'count': e.value});
+      }
+    });
+    await _refreshReactions();
+  }
+
   Future<Map<String, Map<String, int>>> _fetchReactions() async {
-    if (kIsWeb) {
+    if (_inMemory) {
       return _memReactions
           .map((k, v) => MapEntry(k, Map<String, int>.from(v)));
     }

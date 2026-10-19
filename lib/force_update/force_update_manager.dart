@@ -212,6 +212,14 @@ class ForceUpdateManager {
     _packageInfo ??= await PackageInfo.fromPlatform();
     final prefs = await SharedPreferences.getInstance();
 
+    // First check of this launch: decide at once from the policy saved by
+    // the last successful fetch, so the app opens immediately instead of
+    // waiting up to [fetchTimeout] for the network behind a spinner. The
+    // fetch below then confirms or updates the decision.
+    if (status.value == null) {
+      _publish(ForceUpdatePolicy.fromPrefs(prefs));
+    }
+
     final fresh = await _fetchRemote();
     if (fresh != null) {
       await fresh.saveTo(prefs);
@@ -219,11 +227,15 @@ class ForceUpdateManager {
     } else {
       _policy = ForceUpdatePolicy.fromPrefs(prefs);
     }
+    _publish(_policy);
+  }
 
+  void _publish(ForceUpdatePolicy policy) {
+    _policy = policy;
     final code = int.tryParse(_packageInfo!.buildNumber);
     status.value = ForceUpdateStatus(
-      decision: _policy.evaluate(code),
-      policy: _policy,
+      decision: policy.evaluate(code),
+      policy: policy,
       installedVersionName: _packageInfo!.version,
       installedVersionCode: code,
     );

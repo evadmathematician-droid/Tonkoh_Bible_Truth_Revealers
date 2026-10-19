@@ -1,3 +1,5 @@
+import '../links/link_preview.dart';
+
 class TextMessage {
   final String id;
   final String text;
@@ -9,6 +11,10 @@ class TextMessage {
   final String senderName;
   final String senderPhone;
 
+  /// Preview card for a link in [text] (WhatsApp-style). [text] always
+  /// still contains the URL, so older app versions show it as text.
+  final LinkPreview? link;
+
   TextMessage({
     required this.id,
     required this.text,
@@ -19,6 +25,7 @@ class TextMessage {
     required this.senderId,
     required this.senderName,
     required this.senderPhone,
+    this.link,
   });
 
   factory TextMessage.fromMap(String id, Map<dynamic, dynamic> map) {
@@ -32,6 +39,7 @@ class TextMessage {
       senderId: map['senderId'] as String? ?? '',
       senderName: map['senderName'] as String? ?? '',
       senderPhone: map['senderPhone'] as String? ?? '',
+      link: LinkPreview.fromMap(map['link']),
     );
   }
 
@@ -45,6 +53,7 @@ class TextMessage {
       'senderId': senderId,
       'senderName': senderName,
       'senderPhone': senderPhone,
+      if (link != null) 'link': link!.toMap(),
     };
   }
 
@@ -59,6 +68,7 @@ class TextMessage {
         'senderId': senderId,
         'senderName': senderName,
         'senderPhone': senderPhone,
+        'linkJson': link?.toJson() ?? '',
       };
 
   factory TextMessage.fromDbMap(Map<String, Object?> map) {
@@ -72,6 +82,7 @@ class TextMessage {
       senderId: (map['senderId'] ?? '') as String,
       senderName: (map['senderName'] ?? '') as String,
       senderPhone: (map['senderPhone'] ?? '') as String,
+      link: LinkPreview.fromJson(map['linkJson'] as String?),
     );
   }
 }

@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../../cloudinary/cloudinary_upload.dart';
 import '../../data/display_names.dart';
 import '../../data/phone_aliases.dart';
 import '../../data/feed_item.dart';
 import '../../data/sermon_audio.dart';
+import '../../links/link_preview_card.dart';
 import '../../services/share_service.dart';
 import '../../util/chat_time.dart';
 import '../../widgets/media_download_button.dart';
@@ -21,8 +23,19 @@ typedef SeekCallback = void Function(SermonAudio sermon, double value);
 typedef SermonCallback = void Function(SermonAudio sermon);
 
 class AudioFeedList extends StatelessWidget {
+  /// Oldest first. Drawn reversed: index 0 of the list is the newest post,
+  /// at the bottom, so the screen can open "at the newest" or exactly at a
+  /// saved post ([initialScrollIndex] / [initialAlignment], reversed
+  /// indices) with no visible jump.
   final List<FeedItem> feedItems;
-  final ScrollController scrollController;
+  final ItemScrollController itemScrollController;
+  final ItemPositionsListener itemPositionsListener;
+  final int initialScrollIndex;
+  final double initialAlignment;
+
+  /// "N new messages" divider goes above this post (null: no divider).
+  final String? unreadDividerId;
+  final int unreadDividerCount;
   final Map<String, Map<String, int>> reactionsMap;
   final String? longPressMenuFor;
   final void Function(String itemId) onLongPress;
@@ -52,7 +65,12 @@ class AudioFeedList extends StatelessWidget {
   const AudioFeedList({
     super.key,
     required this.feedItems,
-    required this.scrollController,
+    required this.itemScrollController,
+    required this.itemPositionsListener,
+    this.initialScrollIndex = 0,
+    this.initialAlignment = 0,
+    this.unreadDividerId,
+    this.unreadDividerCount = 0,
     required this.reactionsMap,
     required this.longPressMenuFor,
     required this.onLongPress,
@@ -81,11 +99,18 @@ class AudioFeedList extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        ListView.builder(
-          controller: scrollController,
+        ScrollablePositionedList.builder(
+          itemScrollController: itemScrollController,
+          itemPositionsListener: itemPositionsListener,
+          reverse: true,
+          initialScrollIndex: feedItems.isEmpty
+              ? 0
+              : initialScrollIndex.clamp(0, feedItems.length - 1),
+          initialAlignment: initialAlignment,
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
           itemCount: feedItems.length,
-          itemBuilder: (context, index) {
+          itemBuilder: (context, displayIndex) {
+            final index = feedItems.length - 1 - displayIndex;
             final item = feedItems[index];
             final showDivider = index == 0 ||
                 !isSameDay(
@@ -93,11 +118,14 @@ class AudioFeedList extends StatelessWidget {
                       feedItems[index - 1].timestamp),
                   DateTime.fromMillisecondsSinceEpoch(item.timestamp),
                 );
+            final showUnread = item.id == unreadDividerId;
             final row = _buildItem(context, item);
-            if (!showDivider) return row;
+            if (!showDivider && !showUnread) return row;
             return Column(
               children: [
-                _FeedDateDivider(label: dateDividerLabel(item.timestamp)),
+                if (showDivider)
+                  _FeedDateDivider(label: dateDividerLabel(item.timestamp)),
+                if (showUnread) _UnreadDivider(count: unreadDividerCount),
                 row,
               ],
             );
@@ -330,6 +358,10 @@ class AudioFeedList extends StatelessWidget {
                     const TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),
           ),
         Text(msg.text),
+        if (msg.link != null) ...[
+          const SizedBox(height: 8),
+          LinkPreviewCard(preview: msg.link!),
+        ],
         const SizedBox(height: 4),
         Text(
           messageClock(msg.timestamp),
@@ -346,6 +378,7 @@ class AudioFeedList extends StatelessWidget {
   /// so images and videos showed up looking like broken audio. Branch on
   /// `mediaType` so each kind gets its own presentation.
   Widget _buildMediaItem(SermonAudio sermon) {
+    if (sermon.isLink) return _LinkPost(sermon: sermon);
     switch (sermon.mediaType.toUpperCase()) {
       case 'IMAGE':
         return _ImageItem(
@@ -681,6 +714,63 @@ class _AudioItemPlayer extends StatelessWidget {
             ),
           ),
         ],
+      ],
+    );
+  }
+}
+
+
+/// "3 new messages" — above the first post that arrived since the last
+/// visit (WhatsApp style).
+class _UnreadDivider extends StatelessWidget {
+  final int count;
+  const _UnreadDivider({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('feedUnreadDivider'),
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      color: const Color(0xCCFFFFFF),
+      alignment: Alignment.center,
+      child: Text(
+        count == 1 ? '1 new message' : '$count new messages',
+        style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF102A72)),
+      ),
+    );
+  }
+}
+
+/// A YouTube / TikTok / web link shared into the Audio screen (approved
+/// like any upload): the sharer's caption, then the rich preview card.
+class _LinkPost extends StatelessWidget {
+  final SermonAudio sermon;
+  const _LinkPost({required this.sermon});
+
+  @override
+  Widget build(BuildContext context) {
+    final link = sermon.link!;
+    final caption = sermon.description.trim().isNotEmpty
+        ? sermon.description.trim()
+        : link.sharedText.trim();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (caption.isNotEmpty && caption != link.url) ...[
+          Text(caption),
+          const SizedBox(height: 8),
+        ],
+        LinkPreviewCard(preview: link),
+        const SizedBox(height: 4),
+        Text(
+          messageClock(sermon.timestamp),
+          style: const TextStyle(fontSize: 10, color: Colors.grey),
+        ),
       ],
     );
   }

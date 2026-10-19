@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:tbtrapp/data/display_names.dart';
 import 'package:tbtrapp/data/feed_item.dart';
 import 'package:tbtrapp/data/text_message.dart';
@@ -35,7 +36,8 @@ Future<List<(String, ReplyTarget)>> _pump(WidgetTester tester) async {
               _post('b', _saved, 'Samuel K'),
               _post('c', _unsaved, 'Stranger Chosen Name'),
             ],
-            scrollController: ScrollController(),
+            itemScrollController: ItemScrollController(),
+            itemPositionsListener: ItemPositionsListener.create(),
             reactionsMap: const {},
             longPressMenuFor: null,
             onLongPress: (_) {},
