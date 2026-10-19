@@ -135,5 +135,35 @@ void main() {
       await store.setItemReactions('s1', {'❤️': 2});
       await store.close();
     });
+
+    test('open timing: 600 stored posts read for the first frame', () async {
+      final store =
+          LocalFeedStore(factory: databaseFactoryFfi, path: '${dir.path}/b.db');
+      await store.upsertSermons([
+        for (var i = 0; i < 200; i++)
+          SermonAudio(
+              id: 's$i', title: 'Sermon $i', description: 'd' * 160,
+              audioUrl: 'https://res.cloudinary.com/x/s$i.mp3',
+              mediaType: 'AUDIO', senderId: '+23276000002', senderName: '',
+              timestamp: i * 1000),
+      ]);
+      await store.upsertTexts([
+        for (var i = 0; i < 400; i++)
+          TextMessage(
+              id: 't$i', text: 'message number $i ' * 3, timestamp: i * 1000 + 500,
+              senderId: '+23276000003', senderName: '', senderPhone: ''),
+      ]);
+      final sw = Stopwatch()..start();
+      final all = await store.loadAll();
+      final items = buildFeedItems(all.sermons, all.texts);
+      final start = initialFeedScroll(items, null);
+      final ms = sw.elapsedMicroseconds / 1000;
+      // ignore: avoid_print
+      print('FEED OPEN: ${items.length} posts read + ordered in '
+          '${ms.toStringAsFixed(1)} ms (local, no network)');
+      expect(items, hasLength(600));
+      expect(start.index, 0);
+      await store.close();
+    });
   });
 }
