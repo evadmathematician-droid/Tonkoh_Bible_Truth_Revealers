@@ -36,6 +36,15 @@ subprojects {
     }
 }
 
+// Several plugins still compile their Java code for source/target 8, and
+// javac on JDK 21 warns that 8 is obsolete on every build. Silence only that
+// [options] lint; the plugins' own Java versions are left unchanged.
+subprojects {
+    tasks.withType<JavaCompile>().configureEach {
+        options.compilerArgs.add("-Xlint:-options")
+    }
+}
+
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
