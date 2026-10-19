@@ -1,0 +1,59 @@
+group 'dev.fluttercommunity.plus.packageinfo'
+version '1.0-SNAPSHOT'
+
+buildscript {
+    ext.kotlin_version = '2.2.0'
+
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.12.1'
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.library'
+// T.B.T.R local patch (third_party/README.md): Built-in Kotlin migration —
+// this plugin no longer applies the Kotlin Gradle Plugin itself (nor puts its
+// own KGP on the buildscript classpath). With android.builtInKotlin=false the
+// Flutter Gradle plugin applies KGP; the kotlin { compilerOptions } block
+// below configures it.
+
+android {
+    namespace 'dev.fluttercommunity.plus.packageinfo'
+    compileSdk = flutter.compileSdkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+
+    defaultConfig {
+        minSdk 19
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    lintOptions {
+        disable 'InvalidPackage'
+    }
+
+    dependencies {
+        implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
