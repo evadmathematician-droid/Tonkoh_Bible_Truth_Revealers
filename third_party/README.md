@@ -10,8 +10,10 @@ version the app already used is copied here and pointed to with
 **Only the Android Gradle build file was changed**, following
 <https://docs.flutter.dev/release/breaking-changes/migrate-to-built-in-kotlin/for-plugin-authors>:
 the `kotlin-android` plugin is no longer applied by the plugin (with
-`android.builtInKotlin=false` the Flutter Gradle plugin applies it), and Kotlin
-options use the `kotlin { compilerOptions { … } }` form. Dart, Kotlin/Java,
+`android.builtInKotlin=false` the Flutter Gradle plugin applies it), a
+plugin-private KGP version is no longer put on its buildscript classpath
+(it would clash with the app's KGP), and Kotlin options use the
+`kotlin { compilerOptions { … } }` form. Dart, Kotlin/Java,
 iOS and all other files are byte-for-byte the published package. Each patched
 file carries a `T.B.T.R local patch` comment.
 
@@ -21,6 +23,11 @@ file carries a `T.B.T.R local patch` comment.
 | firebase_auth | 6.6.1 | same |
 | firebase_database | 12.5.0 | same |
 | firebase_remote_config | 6.7.0 | same |
+| flutter_webrtc | 1.6.0 | removed the conditional `apply plugin: 'kotlin-android'` and its own KGP 2.1.0 buildscript classpath (its `kotlin { compilerOptions }` block was already there) |
+| pasteboard | 0.4.0 | removed `apply plugin: "kotlin-android"` and its KGP 1.8.22 classpath; `kotlinOptions { jvmTarget = 1.8 }` → `kotlin { compilerOptions { jvmTarget = JVM_1_8 } }` |
+| device_info_plus | 12.4.0 | removed `apply plugin: 'kotlin-android'` and its KGP 2.2.0 classpath; `kotlinOptions { jvmTarget = 17 }` → `kotlin { compilerOptions { jvmTarget = JVM_17 } }` |
+| package_info_plus | 9.0.1 | same as device_info_plus |
+| share_plus | 11.1.0 | same, KGP 1.7.22 classpath removed |
 
 ## Removing a patch
 

@@ -212,10 +212,9 @@ packages:
   device_info_plus:
     dependency: "direct main"
     description:
-      name: device_info_plus
-      sha256: b4fed1b2835da9d670d7bed7db79ae2a94b0f5ad6312268158a9b5479abbacdd
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/device_info_plus"
+      relative: true
+    source: path
     version: "12.4.0"
   device_info_plus_platform_interface:
     dependency: transitive
@@ -495,10 +494,9 @@ packages:
   flutter_webrtc:
     dependency: "direct main"
     description:
-      name: flutter_webrtc
-      sha256: e997161d7da3adedd3d430691b20931b0b4d96fa48bb60938d9ba0bf6fca98be
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/flutter_webrtc"
+      relative: true
+    source: path
     version: "1.6.0"
   gal:
     dependency: "direct main"
@@ -855,10 +853,9 @@ packages:
   package_info_plus:
     dependency: "direct main"
     description:
-      name: package_info_plus
-      sha256: "468c26b4254ab01979fa5e4a98cb343ea3631b9acee6f21028997419a80e1a20"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/package_info_plus"
+      relative: true
+    source: path
     version: "9.0.1"
   package_info_plus_platform_interface:
     dependency: transitive
@@ -871,10 +868,9 @@ packages:
   pasteboard:
     dependency: "direct main"
     description:
-      name: pasteboard
-      sha256: "9ff73ada33f79a59ff91f6c01881fd4ed0a0031cfc4ae2d86c0384471525fca1"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/pasteboard"
+      relative: true
+    source: path
     version: "0.4.0"
   path:
     dependency: "direct main"
@@ -1119,10 +1115,9 @@ packages:
   share_plus:
     dependency: "direct main"
     description:
-      name: share_plus
-      sha256: d7dc0630a923883c6328ca31b89aa682bacbf2f8304162d29f7c6aaff03a27a1
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/share_plus"
+      relative: true
+    source: path
     version: "11.1.0"
   share_plus_platform_interface:
     dependency: transitive
