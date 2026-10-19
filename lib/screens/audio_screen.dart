@@ -289,11 +289,11 @@ class _AudioScreenState extends State<AudioScreen> {
   /// the contact sync picks the new name up as soon as it's saved.
   Future<void> _saveMemberContact(AppContact member) async {
     try {
-      await FlutterContacts.openExternalInsert(
-        Contact(phones: [Phone(member.phone)]),
+      await FlutterContacts.native.showCreator(
+        contact: Contact(phones: [Phone(number: member.phone)]),
       );
     } catch (e) {
-      debugPrint('AudioScreen: openExternalInsert failed: $e');
+      debugPrint('AudioScreen: showCreator failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Couldn't open your contacts app.")),

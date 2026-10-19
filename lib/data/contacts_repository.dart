@@ -93,17 +93,19 @@ class ContactsRepository {
   static Future<List<DeviceContact>> readDeviceContacts() async {
     if (kIsWeb || Platform.isWindows) return [];
 
-    // readonly:true asks for READ_CONTACTS only — the default also requests
-    // WRITE_CONTACTS, which this app never declares, so the plugin's
-    // combined check could never pass.
-    final granted = await FlutterContacts.requestPermission(readonly: true);
-    if (!granted) return [];
+    // READ_CONTACTS only — the app never declares WRITE_CONTACTS.
+    final status = await FlutterContacts.permissions.request(PermissionType.read);
+    if (status != PermissionStatus.granted) return [];
 
-    var contacts = await FlutterContacts.getContacts(withProperties: true);
+    // Name + numbers only (no photos). Since flutter_contacts 2.3 this is
+    // the same set the system Contacts app shows — 1.x dropped contacts
+    // that weren't flagged IN_VISIBLE_GROUP, common on Samsung.
+    const props = {ContactProperty.name, ContactProperty.phone};
+    var contacts = await FlutterContacts.getAll(properties: props);
     if (contacts.isEmpty) {
       // provider occasionally not ready on the first call after a grant
       await Future<void>.delayed(const Duration(milliseconds: 400));
-      contacts = await FlutterContacts.getContacts(withProperties: true);
+      contacts = await FlutterContacts.getAll(properties: props);
     }
 
     final out = <DeviceContact>[];
@@ -119,11 +121,11 @@ class ContactsRepository {
         nums.add(n);
         seen.add(digits(n));
         // Android keeps a normalized copy too; harmless duplicate input.
-        final norm = p.normalizedNumber.trim();
+        final norm = (p.normalizedNumber ?? '').trim();
         if (norm.isNotEmpty) nums.add(norm);
       }
       if (nums.isEmpty) continue;
-      final name = c.displayName.trim();
+      final name = (c.displayName ?? '').trim();
       out.add((name: name.isEmpty ? nums.first : name, numbers: nums.toList()));
     }
 

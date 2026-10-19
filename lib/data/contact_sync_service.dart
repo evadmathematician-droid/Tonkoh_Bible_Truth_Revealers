@@ -33,7 +33,7 @@ class ContactSyncService with WidgetsBindingObserver {
   static const String _askedKey = 'contacts_perm_auto_asked_v1';
 
   bool _started = false;
-  bool _listening = false;
+  StreamSubscription<void>? _contactsChanged;
   Future<void>? _running;
   bool _pending = false;
   Timer? _changeDebounce;
@@ -64,9 +64,8 @@ class ContactSyncService with WidgetsBindingObserver {
   }
 
   void _listen() {
-    if (_listening) return;
-    _listening = true;
-    FlutterContacts.addListener(_onContactsChanged);
+    _contactsChanged ??=
+        FlutterContacts.onDatabaseChange.listen((_) => _onContactsChanged());
   }
 
   Future<bool> _ensurePermission() async {
