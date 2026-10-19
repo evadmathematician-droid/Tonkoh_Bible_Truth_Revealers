@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../util/phone_utils.dart';
@@ -54,6 +56,20 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     }
 
     setState(() => _isSaving = true);
+
+    // Registration opens before sign-in finishes (no network wait at
+    // start), so make sure we're signed in before saving.
+    final signedIn = Completer<String?>();
+    await AuthManager.ensureSignedIn(
+      onReady: () => signedIn.complete(null),
+      onError: (m) => signedIn.complete(m),
+    );
+    if (await signedIn.future != null) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      _showSnack('No internet connection — connect and try again.');
+      return;
+    }
 
     // Only the normalized E.164 is saved (AuthManager re-checks it with the
     // same normalizePhone()).

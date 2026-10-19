@@ -260,7 +260,8 @@ class ForceUpdateManager {
           .fetchAndActivate()
           .timeout(fetchTimeout + const Duration(seconds: 2));
     } catch (e) {
-      debugPrint('ForceUpdateManager: fetch failed: $e');
+      // Offline / slow: keep using the saved policy; nothing to show.
+      debugPrint('ForceUpdateManager: fetch skipped ($e)');
     }
 
     // `success` also covers a fetch skipped because the cached values are

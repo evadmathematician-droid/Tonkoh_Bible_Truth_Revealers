@@ -48,6 +48,11 @@ class _AuthGateState extends State<AuthGate> {
     final cached = await AuthManager.getCachedProfile();
     if (cached != null) {
       _setReady(cached.uid);
+    } else if (mounted) {
+      // No account on this phone: show registration right away instead of
+      // a spinner while anonymous sign-in waits for the network (it
+      // continues below; Continue waits for it if needed).
+      setState(() => _status = _GateStatus.needsProfile);
     }
 
     // Mirrors ensureSignedIn(...) in the Kotlin LaunchedEffect(Unit).
@@ -71,11 +76,16 @@ class _AuthGateState extends State<AuthGate> {
       onError: (_) {}, // matches Kotlin's empty onError
     );
 
-    // Signed in now: load the server alias table (old malformed keys →
-    // E.164), then fix this device's own account id if an older version
-    // saved it malformed.
-    await PhoneAliases.instance.load();
-    await _repairAccountId();
+    // Signed in now: fix this device's own account id if an older version
+    // saved it malformed — first with the alias table saved on the phone,
+    // then again if the background refresh brings a new one. Nothing here
+    // is awaited by the UI, so a slow or missing connection never delays
+    // a screen.
+    unawaited(() async {
+      await PhoneAliases.instance.loadCached();
+      await _repairAccountId();
+      if (await PhoneAliases.instance.refresh()) await _repairAccountId();
+    }());
   }
 
   /// Re-points this device at its corrected account id, if it has one.

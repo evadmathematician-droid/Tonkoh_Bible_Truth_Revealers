@@ -120,30 +120,43 @@ class _PhoneNumberFieldState extends State<PhoneNumberField> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            InkWell(
-              key: const Key('phoneCountryPicker'),
-              borderRadius: BorderRadius.circular(14),
-              onTap: widget.enabled ? _pickCountry : null,
-              child: InputDecorator(
-                decoration: InputDecoration(
-                  labelText: 'Country',
-                  border: border,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(_country.flag, style: const TextStyle(fontSize: 20)),
-                    const SizedBox(width: 6),
-                    Text('+${_country.dialCode}',
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
-                    const Icon(Icons.arrow_drop_down),
-                  ],
+            // An InputDecorator needs a bounded width, and a Row gives its
+            // non-flexible children none — so the picker gets a fixed
+            // compact width, and its content shrinks to fit (long dial
+            // codes, large system font) instead of overflowing.
+            SizedBox(
+              width: 108,
+              child: InkWell(
+                key: const Key('phoneCountryPicker'),
+                borderRadius: BorderRadius.circular(14),
+                onTap: widget.enabled ? _pickCountry : null,
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'Country',
+                    border: border,
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_country.flag,
+                            style: const TextStyle(fontSize: 20)),
+                        const SizedBox(width: 4),
+                        Text('+${_country.dialCode}',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w600)),
+                        const Icon(Icons.arrow_drop_down),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Expanded(
               child: TextField(
                 key: const Key('phoneNumberInput'),

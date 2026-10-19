@@ -21,30 +21,40 @@ class PhoneAliases {
   static const String _prefsKey = 'phone_aliases_v1';
 
   Map<String, String> _aliases = const {};
-  bool _loading = false;
+  bool _refreshing = false;
 
-  /// Cached table first (instant, offline), then a refresh from Firebase.
-  Future<void> load() async {
-    if (_loading) return;
-    _loading = true;
+  /// The table saved on the phone — instant, works offline.
+  Future<void> loadCached() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_prefsKey);
       if (raw != null) _aliases = _parse(jsonDecode(raw));
+    } catch (e) {
+      debugPrint('PhoneAliases: cached table unreadable: $e');
+    }
+  }
 
+  /// Background refresh from Firebase. Never needed to show any screen; on
+  /// a slow or missing connection it simply keeps the cached table.
+  /// Returns true when the table changed.
+  Future<bool> refresh() async {
+    if (_refreshing) return false;
+    _refreshing = true;
+    try {
       final snap = await FirebaseDatabase.instance
           .ref('phoneAliases')
           .get()
           .timeout(const Duration(seconds: 15));
       final fresh = _parse(snap.value);
-      if (!mapEquals(fresh, _aliases)) {
-        _aliases = fresh;
-        await prefs.setString(_prefsKey, jsonEncode(fresh));
-      }
-    } catch (e) {
-      debugPrint('PhoneAliases: load failed: $e');
+      if (mapEquals(fresh, _aliases)) return false;
+      _aliases = fresh;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsKey, jsonEncode(fresh));
+      return true;
+    } catch (_) {
+      return false; // offline / slow: the cached copy stays in use
     } finally {
-      _loading = false;
+      _refreshing = false;
     }
   }
 
