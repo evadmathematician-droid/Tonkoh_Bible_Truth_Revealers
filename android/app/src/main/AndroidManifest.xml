@@ -76,6 +76,10 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Direct Share target for the "Audio Screen" sharing shortcut. -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/share_targets" />
         </activity>
 
         <!-- "Share → TBTR App" from TikTok, WhatsApp, YouTube, the gallery…

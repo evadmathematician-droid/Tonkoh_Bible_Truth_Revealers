@@ -3,6 +3,9 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:just_audio/just_audio.dart';
 import 'dart:async';
 
+import '../data/text_message.dart';
+import '../links/link_preview.dart';
+import '../links/link_preview_card.dart';
 import 'audio/onesignal_push.dart';
 
 
@@ -111,7 +114,20 @@ class _AdminAudioApprovalScreenState extends State<AdminAudioApprovalScreen> {
     data['status'] = 'approved';
     data['timestamp'] = DateTime.now().millisecondsSinceEpoch;
 
-    await db.child('approved').child(sermonId).set(data);
+    if (data['mediaType'] == 'TEXT') {
+      // Shared plain text: published as a normal feed text post.
+      final ref = FirebaseDatabase.instance.ref('textMessages').push();
+      await ref.set(TextMessage(
+        id: ref.key ?? '',
+        text: (data['description'] as String? ?? '').trim(),
+        timestamp: data['timestamp'] as int,
+        senderId: data['senderId'] as String? ?? '',
+        senderName: data['senderName'] as String? ?? '',
+        senderPhone: data['senderPhone'] as String? ?? '',
+      ).toMap());
+    } else {
+      await db.child('approved').child(sermonId).set(data);
+    }
     await db.child('pending').child(sermonId).remove();
 
     // Tell everyone the new post is live — the uploader's own push went
@@ -119,6 +135,8 @@ class _AdminAudioApprovalScreenState extends State<AdminAudioApprovalScreen> {
     final kind = switch (data['mediaType']) {
       'IMAGE' => 'a photo',
       'VIDEO' => 'a video',
+      'LINK' => 'a link',
+      'TEXT' => 'a message',
       _ => 'a new audio',
     };
     final title = (data['title'] as String? ?? '').trim();
@@ -204,6 +222,7 @@ class _AdminAudioApprovalScreenState extends State<AdminAudioApprovalScreen> {
     final url = audio['audioUrl']?.toString();
     final id = audio['id']?.toString();
     final status = audio['status']?.toString();
+    final link = audio['mediaType'] == 'LINK' ? LinkPreview.fromMap(audio['link']) : null;
 
     final statusLabel = switch (status) {
       'approved' => '🟢 APPROVED',
@@ -226,7 +245,15 @@ class _AdminAudioApprovalScreenState extends State<AdminAudioApprovalScreen> {
           children: [
             Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 21)),
             const SizedBox(height: 12),
-            Text(desc),
+            if (link != null) ...[
+              // The full preview everyone will see after approval.
+              if (desc.isNotEmpty && desc != link.url) ...[
+                Text(desc),
+                const SizedBox(height: 10),
+              ],
+              LinkPreviewCard(preview: link),
+            ] else
+              Text(desc),
             const SizedBox(height: 12),
             Text(statusLabel, style: TextStyle(color: statusColor, fontWeight: FontWeight.bold)),
             if (url != null && url.isNotEmpty) ...[

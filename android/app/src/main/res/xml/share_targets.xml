@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Direct Share: lets the "T.B.T.R – Audio Screen" sharing shortcut
+     (published by ShareShortcuts.kt) appear in Android's own share sheet.
+     Picking it opens ShareReceiverActivity with the shortcut id, and the
+     share screen opens with "Audio Screen" already selected. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <share-target android:targetClass="com.tbtrapp.share.ShareReceiverActivity">
+        <data android:mimeType="text/plain" />
+        <data android:mimeType="image/*" />
+        <data android:mimeType="video/*" />
+        <data android:mimeType="audio/*" />
+        <category android:name="com.tbtrapp.category.SHARE_TO_AUDIO" />
+    </share-target>
+</shortcuts>

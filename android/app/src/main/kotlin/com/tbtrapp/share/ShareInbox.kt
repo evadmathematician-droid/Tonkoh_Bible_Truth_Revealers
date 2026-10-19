@@ -14,6 +14,8 @@ object ShareInbox {
         val text: String?,
         val subject: String?,
         val files: List<SharedFile>,
+        /** "audio" when shared via the Audio Screen Direct Share shortcut. */
+        val target: String? = null,
     ) {
         fun isEmpty() = text.isNullOrBlank() && files.isEmpty()
 
@@ -21,6 +23,7 @@ object ShareInbox {
         fun toMap(): Map<String, Any?> = mapOf(
             "text" to text,
             "subject" to subject,
+            "target" to target,
             "files" to files.map {
                 mapOf("path" to it.path, "mimeType" to it.mimeType, "name" to it.name)
             },

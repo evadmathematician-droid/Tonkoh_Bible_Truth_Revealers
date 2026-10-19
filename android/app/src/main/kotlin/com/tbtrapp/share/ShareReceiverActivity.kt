@@ -79,7 +79,11 @@ class ShareReceiverActivity : Activity() {
 
         val dir = File(cacheDir, "incoming_share").apply { mkdirs() }
         val files = uris.take(MAX_FILES).mapNotNull { copy(it, dir, intent.type) }
-        return ShareInbox.Payload(text = text, subject = subject, files = files)
+        // Picked the "Audio Screen" Direct Share shortcut: preselect it.
+        val target = if (intent.getStringExtra(Intent.EXTRA_SHORTCUT_ID) ==
+            ShareShortcuts.AUDIO_SCREEN_ID
+        ) "audio" else null
+        return ShareInbox.Payload(text = text, subject = subject, files = files, target = target)
     }
 
     @Suppress("DEPRECATION")

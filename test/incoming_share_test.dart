@@ -61,4 +61,10 @@ void main() {
       expect(s.isEmpty, isTrue);
     });
   });
+
+  test('Direct Share shortcut preselects the Audio Screen', () {
+    expect(IncomingShare.fromMap({'text': 'x', 'target': 'audio'}).toAudioScreen,
+        isTrue);
+    expect(IncomingShare.fromMap({'text': 'x'}).toAudioScreen, isFalse);
+  });
 }

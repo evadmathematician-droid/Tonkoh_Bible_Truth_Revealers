@@ -7,7 +7,9 @@ import 'package:provider/provider.dart';
 import '../cloudinary/cloudinary_upload.dart';
 import '../data/contacts_cache.dart';
 import '../data/display_names.dart';
-import '../screens/audio/audio_feed_provider.dart';
+import '../links/link_preview.dart';
+import '../links/link_preview_card.dart';
+import '../links/link_preview_service.dart';
 import '../screens/auth/auth_manager.dart';
 import '../screens/components/profile_avatar.dart';
 import 'incoming_share.dart';
@@ -36,9 +38,14 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
   final _search = TextEditingController();
   final Set<String> _selected = {};
   List<_Candidate> _candidates = [];
-  bool _toFeed = false;
+  // "📢 Audio Screen": preselected when shared via its Direct Share shortcut.
+  late bool _toFeed = widget.share.toAudioScreen;
   bool _sending = false;
   String _status = '';
+
+  // Rich card for a shared link (YouTube, TikTok, any site).
+  LinkPreview? _preview;
+  bool _loadingPreview = false;
 
   List<SharedFile> get _media =>
       widget.share.files.where((f) => f.isMedia).toList();
@@ -49,6 +56,20 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
     super.initState();
     _message = TextEditingController(text: widget.share.message);
     _loadCandidates();
+    _loadPreview();
+  }
+
+  Future<void> _loadPreview() async {
+    final link = extractFirstUrl(widget.share.message);
+    if (link == null || _media.isNotEmpty) return;
+    setState(() => _loadingPreview = true);
+    final p = await LinkPreviewService.instance
+        .fetch(link, sharedText: widget.share.message);
+    if (!mounted) return;
+    setState(() {
+      _preview = p;
+      _loadingPreview = false;
+    });
   }
 
   @override
@@ -117,7 +138,16 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
       return;
     }
     final text = _message.text.trim();
-    final feed = context.read<AudioFeedProvider>();
+    final linkUrl = extractFirstUrl(text);
+    // The card for the link still in the message (fetched now if the
+    // preview hadn't arrived yet; at worst a basic card).
+    LinkPreview? link;
+    if (linkUrl != null && _media.isEmpty) {
+      link = _preview?.url == linkUrl
+          ? _preview
+          : await LinkPreviewService.instance.fetch(linkUrl);
+      link = link?.copyWith(sharedText: text);
+    }
     setState(() => _sending = true);
 
     try {
@@ -138,22 +168,25 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
         ));
       }
 
+      // Shared content for the Audio screen always waits for an admin:
+      // media, links (with the full preview) and plain text alike.
       if (_toFeed) {
-        setState(() => _status = 'Posting to the feed…');
+        setState(() => _status = 'Sending to Admin for approval…');
         if (uploads.isNotEmpty) {
           for (final u in uploads) {
             await ShareSender.postMediaToFeed(me: me, upload: u, caption: text);
           }
+        } else if (link != null) {
+          await ShareSender.postLinkToFeed(me: me, link: link, caption: text);
         } else if (text.isNotEmpty) {
-          await feed.sendTextMessage(text);
-          ShareSender.notifyFeedText(me, text);
+          await ShareSender.postTextToFeed(me: me, text: text);
         }
       }
 
       for (final uid in _selected) {
         setState(() => _status = 'Sending to ${DisplayNames.instance.nameFor(uid)}…');
         await ShareSender.sendToChat(
-            me: me, otherUid: uid, text: text, files: uploads);
+            me: me, otherUid: uid, text: text, files: uploads, link: link);
       }
 
       _cleanUp();
@@ -175,11 +208,7 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
 
   String _doneMessage(List<UploadedShareFile> uploads) {
     final parts = <String>[];
-    if (_toFeed) {
-      parts.add(uploads.isNotEmpty
-          ? 'sent to the admins for the feed'
-          : 'posted to the feed');
-    }
+    if (_toFeed) parts.add('sent to Admin for approval ✓');
     if (_selected.isNotEmpty) {
       parts.add(_selected.length == 1
           ? 'sent to ${DisplayNames.instance.nameFor(_selected.first)}'
@@ -222,7 +251,18 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
               child: ListView(
                 padding: const EdgeInsets.only(bottom: 16),
                 children: [
-                  _Preview(share: widget.share, media: _media),
+                  if (_preview != null)
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: LinkPreviewCard(preview: _preview!),
+                    )
+                  else if (_loadingPreview)
+                    const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: LinearProgressIndicator(minHeight: 2),
+                    )
+                  else
+                    _Preview(share: widget.share, media: _media),
                   if (_unsupported > 0)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -241,20 +281,37 @@ class _ShareTargetScreenState extends State<ShareTargetScreen> {
                       maxLines: 5,
                       onChanged: (_) => setState(() {}),
                       decoration: InputDecoration(
-                        labelText: hasFiles ? 'Add a caption' : 'Message',
+                        labelText: hasFiles ? 'Add a caption' : 'Add a message…',
                         border: const OutlineInputBorder(),
                       ),
                     ),
                   ),
-                  CheckboxListTile(
-                    value: _toFeed,
-                    onChanged:
-                        _sending ? null : (v) => setState(() => _toFeed = v!),
-                    secondary: const Icon(Icons.campaign, color: _kBrand),
-                    title: const Text('Post to the Audio feed'),
-                    subtitle: Text(hasFiles
-                        ? 'Admins approve it before everyone sees it'
-                        : 'Everyone in the feed will see it'),
+                  // Pinned first destination: the Audio screen (via approval).
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                    child: Material(
+                      color: _kBrand.withValues(alpha: _toFeed ? 0.12 : 0.05),
+                      borderRadius: BorderRadius.circular(14),
+                      child: CheckboxListTile(
+                        key: const Key('shareToAudioScreen'),
+                        value: _toFeed,
+                        onChanged: _sending
+                            ? null
+                            : (v) => setState(() => _toFeed = v!),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                        secondary: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.asset('assets/icon/icon.png',
+                              width: 40, height: 40),
+                        ),
+                        title: const Text('📢 Audio Screen (Post to everyone)',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold, color: _kBrand)),
+                        subtitle: const Text(
+                            'Sent to Admin — appears after approval'),
+                      ),
+                    ),
                   ),
                   const Divider(height: 1),
                   const Padding(

@@ -10,7 +10,8 @@ import '../data/private_message.dart';
 import '../data/user_profile.dart';
 import '../screens/audio/onesignal_push.dart';
 import '../screens/audio/upload_sheet.dart' show generateTitle;
-import '../screens/chat/chat_helpers.dart' show privateChatId;
+import '../links/link_preview.dart';
+import '../screens/chat/chat_helpers.dart' show previewLabelFor, privateChatId;
 import '../screens/chat/private_chat_push.dart';
 import 'incoming_share.dart';
 
@@ -73,6 +74,55 @@ class ShareSender {
     });
   }
 
+  /// A shared link (YouTube, TikTok, any site) for the Audio screen: a
+  /// `LINK` post with the full preview, into sermons/pending like every
+  /// upload — it appears only after an admin approves it. `audioUrl` stays
+  /// empty, so older app versions (which skip such posts) never misdraw it.
+  static Future<void> postLinkToFeed({
+    required UserProfile me,
+    required LinkPreview link,
+    required String caption,
+  }) async {
+    final id = const Uuid().v4();
+    final title = link.title.isNotEmpty ? link.title : generateTitle(caption);
+    await FirebaseDatabase.instance.ref('sermons/pending/$id').set({
+      'id': id,
+      'title': title.isEmpty ? link.url : title,
+      'description': caption,
+      'audioUrl': '',
+      'mediaType': 'LINK',
+      'link': link.copyWith(sharedText: caption).toMap(),
+      'uploadedBy': me.name.isEmpty ? 'user' : me.name,
+      'status': 'pending',
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'senderId': me.uid,
+      'senderName': me.name,
+      'senderPhone': me.phone,
+    });
+  }
+
+  /// Shared plain text for the Audio screen: also waits for approval
+  /// (`TEXT`); approving it publishes it as a normal feed text post.
+  static Future<void> postTextToFeed({
+    required UserProfile me,
+    required String text,
+  }) async {
+    final id = const Uuid().v4();
+    await FirebaseDatabase.instance.ref('sermons/pending/$id').set({
+      'id': id,
+      'title': generateTitle(text),
+      'description': text,
+      'audioUrl': '',
+      'mediaType': 'TEXT',
+      'uploadedBy': me.name.isEmpty ? 'user' : me.name,
+      'status': 'pending',
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'senderId': me.uid,
+      'senderName': me.name,
+      'senderPhone': me.phone,
+    });
+  }
+
   // ── Private chats ─────────────────────────────────────────────────────
 
   static Future<void> sendToChat({
@@ -80,6 +130,7 @@ class ShareSender {
     required String otherUid,
     String text = '',
     List<UploadedShareFile> files = const [],
+    LinkPreview? link,
   }) async {
     final cid = privateChatId(me.uid, otherUid);
     final messagesRef = FirebaseDatabase.instance.ref('privateChats/$cid/messages');
@@ -115,9 +166,12 @@ class ShareSender {
     if (trimmed.isNotEmpty) {
       final ts = DateTime.now().millisecondsSinceEpoch;
       final newRef = messagesRef.push();
+      final withCard = link != null && trimmed.contains(link.url);
       final message = PrivateMessage(
         id: newRef.key ?? '',
         text: trimmed,
+        type: withCard ? 'link' : 'text',
+        link: withCard ? link : null,
         timestamp: ts,
         senderId: me.uid,
         senderName: me.name,
@@ -125,7 +179,7 @@ class ShareSender {
       );
       await LocalChatStore.instance.insert(cid, message);
       await newRef.set(message.toFirebaseMap());
-      lastLabel = trimmed;
+      lastLabel = withCard ? previewLabelFor(message) : trimmed;
       lastTs = ts;
     }
 

@@ -8,6 +8,7 @@ import com.tbtrapp.calls.CallForegroundService
 import com.tbtrapp.platform.RingtonePlayer
 import com.tbtrapp.platform.SimContactsReader
 import com.tbtrapp.share.ShareInbox
+import com.tbtrapp.share.ShareShortcuts
 
 // AudioServiceActivity extends FlutterActivity — required by audio_service so
 // the media-playback foreground service can bind to a running activity.
@@ -30,6 +31,9 @@ class MainActivity : AudioServiceActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // "T.B.T.R – Audio Screen" in Android's share sheet (Direct Share).
+        ShareShortcuts.publish(applicationContext)
 
         ringtonePlayer = RingtonePlayer(applicationContext)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ringtoneChannel)

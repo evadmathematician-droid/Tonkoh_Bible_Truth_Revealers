@@ -9,17 +9,25 @@ class IncomingShare {
   final String subject;
   final List<SharedFile> files;
 
+  /// "audio" when the user picked the "T.B.T.R – Audio Screen" Direct
+  /// Share shortcut: the share screen opens with it selected.
+  final String? target;
+
   const IncomingShare({
     this.text = '',
     this.subject = '',
     this.files = const [],
+    this.target,
   });
+
+  bool get toAudioScreen => target == 'audio';
 
   factory IncomingShare.fromMap(Map<dynamic, dynamic> map) {
     final rawFiles = map['files'];
     return IncomingShare(
       text: (map['text'] as String? ?? '').trim(),
       subject: (map['subject'] as String? ?? '').trim(),
+      target: map['target'] as String?,
       files: rawFiles is List
           ? rawFiles
               .whereType<Map>()
