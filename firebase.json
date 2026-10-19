@@ -29,5 +29,8 @@
     "database": {
       "port": 9123
     }
+  },
+  "remoteconfig": {
+    "template": "remoteconfig.template.json"
   }
 }

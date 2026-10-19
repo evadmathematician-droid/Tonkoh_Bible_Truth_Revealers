@@ -174,9 +174,11 @@ class ForceUpdateManager {
       'The app is undergoing maintenance. Please try again later.';
 
   /// How long a fetched policy is reused before Remote Config goes back to
-  /// the network. Debug builds always fetch. Policy changes published in the
-  /// console still arrive immediately through the real-time listener.
-  Duration minimumFetchInterval = const Duration(hours: 1);
+  /// the network. Short, so a forced update published in the console blocks
+  /// old versions at their next start / resume within minutes (open
+  /// sessions get it at once through the real-time listener). Debug builds
+  /// always fetch. Well within Remote Config's fetch quota.
+  Duration minimumFetchInterval = const Duration(minutes: 5);
 
   /// Upper bound on how long a check waits for the network.
   Duration fetchTimeout = const Duration(seconds: 8);

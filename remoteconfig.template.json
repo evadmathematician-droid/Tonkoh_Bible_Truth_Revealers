@@ -1,0 +1,58 @@
+{
+  "parameters": {
+    "force_update": {
+      "defaultValue": { "value": "true" },
+      "valueType": "BOOLEAN",
+      "description": "3.2.2+ (version code 25+): block versions below min_version_code."
+    },
+    "min_version_code": {
+      "defaultValue": { "value": "28" },
+      "valueType": "NUMBER",
+      "description": "3.2.2+: lowest allowed version code (the +N in pubspec.yaml)."
+    },
+    "latest_version_code": {
+      "defaultValue": { "value": "28" },
+      "valueType": "NUMBER",
+      "description": "3.2.2+: newest version code available. Must be >= min_version_code, otherwise nobody is blocked (safety)."
+    },
+    "update_message": {
+      "defaultValue": { "value": "A new version of T.B.T.R is required. Please update to continue." },
+      "valueType": "STRING",
+      "description": "Shown on the update screen (all versions)."
+    },
+    "playstore_url": {
+      "defaultValue": { "value": "https://play.google.com/store/apps/details?id=com.tbtrapp" },
+      "valueType": "STRING",
+      "description": "3.2.2+: store listing opened by Update Now."
+    },
+    "apk_url": {
+      "defaultValue": { "value": "" },
+      "valueType": "STRING",
+      "description": "3.2.2+: optional direct APK link for phones not installed from Play."
+    },
+    "maintenance_mode": {
+      "defaultValue": { "value": "false" },
+      "valueType": "BOOLEAN",
+      "description": "3.2.2+: block everyone with maintenance_message."
+    },
+    "maintenance_message": {
+      "defaultValue": { "value": "" },
+      "valueType": "STRING"
+    },
+    "min_required_version": {
+      "defaultValue": { "value": "3.2.2" },
+      "valueType": "STRING",
+      "description": "3.2.1 and older (the version on Play before 3.2.2): lowest allowed version NAME."
+    },
+    "update_url_playstore": {
+      "defaultValue": { "value": "https://play.google.com/store/apps/details?id=com.tbtrapp" },
+      "valueType": "STRING",
+      "description": "3.2.1 and older: store listing opened by Update Now."
+    },
+    "update_url_apk": {
+      "defaultValue": { "value": "" },
+      "valueType": "STRING",
+      "description": "3.2.1 and older: optional direct APK link."
+    }
+  }
+}
