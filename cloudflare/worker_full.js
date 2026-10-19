@@ -335,6 +335,20 @@ function phoneKey(phone) {
   return encodeURIComponent(String(phone || "").trim());
 }
 
+// phoneAliases/{oldKey} → E.164, written when a malformed account key was
+// moved. Unknown numbers come back trimmed and unchanged.
+async function resolvePhoneAlias(env, raw) {
+  const phone = String(raw || "").trim();
+  if (!phone) return phone;
+  try {
+    const alias = await dbGet(env, `phoneAliases/${phoneKey(phone)}`);
+    if (typeof alias === "string" && alias) return alias;
+  } catch (_) {
+    // alias lookup is best-effort
+  }
+  return phone;
+}
+
 function looseKey(raw) {
   if (!raw) return null;
   const digits = String(raw).replace(/\D/g, "");
@@ -493,7 +507,7 @@ async function handleMigrationVerify(request, env) {
 
     const {
       secret,
-      claimedPhone,
+      claimedPhone: rawClaimedPhone,
       candidates,
       confirmNoPartners,
       newDeviceId,
@@ -505,6 +519,9 @@ async function handleMigrationVerify(request, env) {
       return json({ ok: false, reason: "bad_secret" }, 200);
     }
     const authUid = caller.claims ? caller.claims.sub : null;
+    // An older app version may still send an account key that the phone
+    // data repair moved (tools/fix_phone_numbers.js) — follow the alias.
+    const claimedPhone = await resolvePhoneAlias(env, rawClaimedPhone);
     if (!claimedPhone || !newDeviceId) {
       return json({ ok: false, reason: "bad_request" }, 400);
     }

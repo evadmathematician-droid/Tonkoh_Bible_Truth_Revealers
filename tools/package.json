@@ -1,0 +1,13 @@
+{
+  "name": "tbtr-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Maintenance scripts for the T.B.T.R Firebase data (phone number repair).",
+  "scripts": {
+    "fix-phones": "node fix_phone_numbers.js",
+    "test": "node fix_phone_numbers.test.js"
+  },
+  "dependencies": {
+    "libphonenumber-js": "^1.13.15"
+  }
+}

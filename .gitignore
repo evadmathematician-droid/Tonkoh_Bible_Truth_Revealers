@@ -49,3 +49,4 @@ app.*.map.json
 
 # Firebase data exports and fix reports (contain user data)
 /backups/
+/tools/node_modules/
