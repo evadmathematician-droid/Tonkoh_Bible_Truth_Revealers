@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
@@ -25,19 +24,9 @@ class AuthManager {
   static const int _maxPhotoBytes = 600000;
   static const String _prefsPrefix = "auth_cache_";
 
-  // SHA-256 of the admin PIN, not the PIN itself — see AuthManager.kt's
-  // ADMIN_PIN_SHA256 comment for the same caveat (still brute-forceable
-  // offline for a short numeric PIN; this only stops someone from reading
-  // the PIN directly out of a decompiled/inspected build).
-  static const String _adminPinSha256 =
-      "edee29f882543b956620b26d0ee0e7e950399b1c4222f5de05e06425b4c995e9";
-
   static FirebaseAuth get _auth => FirebaseAuth.instance;
   static DatabaseReference get _usersRef =>
       FirebaseDatabase.instance.ref("users");
-
-  static bool isAdminPinCorrect(String pin) =>
-      sha256.convert(utf8.encode(pin)).toString() == _adminPinSha256;
 
   static const String _deviceIdKey = "device_identity_id";
 
@@ -160,21 +149,6 @@ class AuthManager {
     }
   }
 
-  /// Server-side admin check: admins/{phone} == true. The PIN on the admin
-  /// screen is only a second step; the database rules enforce this list.
-  static Future<bool> isServerAdmin() async {
-    final profile = await getCachedProfile();
-    if (profile == null || profile.uid.isEmpty) return false;
-    try {
-      final snap =
-          await FirebaseDatabase.instance.ref('admins/${profile.uid}').get();
-      return snap.value == true;
-    } catch (e) {
-      debugPrint('AuthManager: admin check failed: $e');
-      return false;
-    }
-  }
-
   static Future<String?> currentUid() async {
     final profile = await getCachedProfile();
     return profile?.uid;
@@ -203,7 +177,28 @@ class AuthManager {
   /// The cached profile as of the last [getCachedProfile] (AuthGate reads
   /// it at startup) — synchronous, so a chat screen can pick its chat id
   /// and draw saved messages on its very first frame.
-  static UserProfile? lastKnownProfile;
+  static UserProfile? get lastKnownProfile => profileListenable.value;
+  static set lastKnownProfile(UserProfile? p) => profileListenable.value = p;
+
+  /// Notifies when my cached profile changes (e.g. the drawer header after
+  /// a Settings save).
+  static final ValueNotifier<UserProfile?> profileListenable =
+      ValueNotifier<UserProfile?>(null);
+
+  /// Applies a Settings edit to the cached profile right away — before (or
+  /// without) the database write — so my new name/photo shows everywhere.
+  static Future<void> updateCachedProfile({String? name, String? photoUrl}) async {
+    final cached = await getCachedProfile();
+    if (cached == null || (name == null && photoUrl == null)) return;
+    await _cacheProfileLocally(UserProfile(
+      uid: cached.uid,
+      name: name ?? cached.name,
+      phone: cached.phone,
+      country: cached.country,
+      photoUrl: photoUrl ?? cached.photoUrl,
+      createdAt: cached.createdAt,
+    ));
+  }
 
   static Future<void> _cacheProfileLocally(UserProfile profile) async {
     lastKnownProfile = profile;

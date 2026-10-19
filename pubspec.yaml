@@ -34,6 +34,8 @@ dependencies:
   path: ^1.9.1
   sqflite: ^2.4.3
   crypto: ^3.0.7
+  # Re-encodes profile photos as small JPEGs (pure Dart).
+  image: ^4.5.0
 
   gal: ^2.3.0
 

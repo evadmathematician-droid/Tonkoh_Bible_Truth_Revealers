@@ -5,7 +5,7 @@ import '../screens/audio_screen.dart'; // adjust path if yours differs
 import '../screens/contact_screen.dart';
 import '../screens/discussions_screen.dart';
 import '../screens/feedback_screen.dart';
-import '../screens/profile/edit_profile_screen.dart';
+import '../screens/profile/settings_screen.dart';
 import '../screens/chat/private_chat_screen.dart'; // add this import
 
 import '../screens/admin_screen.dart';
@@ -51,7 +51,7 @@ class MainNavHost extends StatelessWidget {
         GoRoute(path: '/feedback', builder: (c, s) => const FeedbackScreen()),
         GoRoute(path: '/chatList', builder: (c, s) => const DiscussionsScreen()),
         GoRoute(path: '/admin', builder: (c, s) => const AdminScreen()),
-        GoRoute(path: '/settings', builder: (c, s) => const EditProfileScreen()),
+        GoRoute(path: '/settings', builder: (c, s) => const SettingsScreen()),
         GoRoute(path: '/adminApproval', builder: (c, s) => const AdminAudioApprovalScreen()),
 
         GoRoute(

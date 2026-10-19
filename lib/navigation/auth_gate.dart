@@ -8,6 +8,7 @@ import '../data/chat_sync_service.dart';
 import '../data/contact_sync_service.dart';
 import '../data/phone_aliases.dart';
 import '../data/profile_photo_cache.dart';
+import '../data/profile_settings_repository.dart';
 import '../screens/auth/auth_manager.dart';
 import '../share/share_intake.dart';
 import '../screens/profile/profile_setup_screen.dart';
@@ -96,6 +97,8 @@ class _AuthGateState extends State<AuthGate> {
     // to the phone in the background before any chat is opened.
     unawaited(ProfilePhotoCache.instance.warmUp());
     unawaited(ChatSyncService.instance.start(uid));
+    // A Settings edit saved offline goes out when the connection returns.
+    ProfileSettingsRepository.instance.startAutoSync();
     // Anything shared in from another app while signed out can open now.
     ShareIntake.instance.onSignedIn();
 

@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../data/user_profile.dart';
+import '../auth/auth_manager.dart';
+import '../components/profile_avatar.dart';
+
 class AudioDrawerContent extends StatelessWidget {
   final String? currentUid;
   final int totalUnread;
@@ -56,9 +60,39 @@ class AudioDrawerContent extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(20),
             color: const Color(0xFFE3F2FD),
-            child: const Text(
-              'TONKOH BIBLE\nTRUTH REVEALERS',
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Color(0xFF102A72)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'TONKOH BIBLE\nTRUTH REVEALERS',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Color(0xFF102A72)),
+                ),
+                // My photo and name — updates as soon as Settings saves.
+                ValueListenableBuilder<UserProfile?>(
+                  valueListenable: AuthManager.profileListenable,
+                  builder: (context, me, _) {
+                    if (me == null) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 14),
+                      child: Row(
+                        children: [
+                          ProfileAvatar(name: me.name, photoUrl: me.photoUrl, size: 44),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              me.name.isEmpty ? 'Me' : me.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600, fontSize: 15, color: Color(0xFF102A72)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
           ),
           _tile(icon: Icons.menu_book, label: 'Bible Facts', onTap: onNavigateBibleFacts),
