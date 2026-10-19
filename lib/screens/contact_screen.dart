@@ -9,8 +9,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../screens/auth/auth_manager.dart';
 import '../calls/start_call.dart';
 import '../data/app_contact.dart';
+import '../data/contact_sync_service.dart';
 import '../data/contacts_cache.dart';
 import '../data/contacts_repository.dart';
+import '../data/profile_photo_cache.dart';
 import '../data/user_profile.dart';
 import '../screens/components/contact_action_sheet.dart';
 import '../screens/components/contact_row.dart';
@@ -30,6 +32,7 @@ class _ContactScreenState extends State<ContactScreen>
   bool _hasPermission = false;
   bool _isLoading = false; // full-screen spinner (first load only)
   bool _syncing = false; // thin top bar during a manual Refresh over data
+  bool _showDiagnostics = false; // long-press the "Contacts" title
 
   // flutter_contacts only has android/ios plugin implementations (checked
   // in its pubspec — no Windows platform channel handler exists), and there
@@ -89,7 +92,10 @@ class _ContactScreenState extends State<ContactScreen>
       return;
     }
 
+    // Last saved result first — the list shows instantly, then refreshes.
+    await ContactsCache.instance.load();
     final status = await Permission.contacts.status;
+    if (!mounted) return;
     setState(() => _hasPermission = status.isGranted);
     if (status.isGranted) {
       if (!ContactsCache.instance.hasLoadedOnce) {
@@ -145,10 +151,7 @@ class _ContactScreenState extends State<ContactScreen>
     // manual Refresh over existing data keeps the list and shows a thin bar.
     final haveData = ContactsCache.instance.hasLoadedOnce;
     setState(() => haveData ? _syncing = true : _isLoading = true);
-    final book = await ContactsRepository.fetchContactBook();
-    ContactsCache.instance.setBook(book);
-    debugPrint('[ContactsDebug] rendering ${book.onApp.length} on-app + '
-        '${book.notOnApp.length} invite rows');
+    await ContactSyncService.instance.onPermissionGranted();
     if (mounted) {
       setState(() {
         _isLoading = false;
@@ -166,8 +169,16 @@ class _ContactScreenState extends State<ContactScreen>
         ContactsCache.instance.syncedWithin(const Duration(minutes: 2))) {
       return;
     }
-    final book = await ContactsRepository.fetchContactBook();
-    ContactsCache.instance.setBook(book);
+    await ContactSyncService.instance.sync();
+  }
+
+  /// Pull-to-refresh: rescan and wait, so the spinner tracks the sync.
+  Future<void> _pullToRefresh() async {
+    if (!_hasPermission) {
+      await _requestPermission();
+      return;
+    }
+    await ContactSyncService.instance.sync();
   }
 
   Future<void> _invite(AppContact contact) async {
@@ -309,7 +320,9 @@ class _ContactScreenState extends State<ContactScreen>
       pageBuilder: (context, __, ___) {
         return FullScreenProfilePhoto(
           name: contact.name,
-          photoUrl: contact.photoUrl,
+          photoUrl: contact.uid == null
+              ? null
+              : ProfilePhotoCache.instance.photoFor(contact.uid!),
           isOwnProfile: contact.uid == _currentUid,
           onDismiss: () => Navigator.pop(context),
         );
@@ -368,15 +381,21 @@ class _ContactScreenState extends State<ContactScreen>
                           fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 12),
-                    const Align(
+                    Align(
                       alignment: Alignment.centerLeft,
-                      child: Padding(
-                        padding: EdgeInsets.only(bottom: 8),
-                        child: Text('Contacts',
-                            style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF102A72))),
+                      child: GestureDetector(
+                        // Hidden diagnostics: how many contacts / valid
+                        // numbers / app users the last sync saw.
+                        onLongPress: () => setState(
+                            () => _showDiagnostics = !_showDiagnostics),
+                        child: const Padding(
+                          padding: EdgeInsets.only(bottom: 8),
+                          child: Text('Contacts',
+                              style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF102A72))),
+                        ),
                       ),
                     ),
                     Expanded(child: _buildBody()),
@@ -424,26 +443,28 @@ class _ContactScreenState extends State<ContactScreen>
     );
   }
 
-  /// TEMPORARY DEBUG BAR — shows ContactsRepository's last-run counters
-  /// directly on screen so a screenshot is enough to diagnose matching.
-  Widget _buildDebugBar() {
-    final err = ContactsRepository.lastError;
+  /// Hidden diagnostics line (long-press the "Contacts" title).
+  Widget _buildDiagnostics() {
+    final s = ContactsCache.instance.stats;
+    final t = s.lastSync;
+    String two(int v) => v.toString().padLeft(2, '0');
+    final when = t == null
+        ? 'never'
+        : '${t.day}/${t.month} ${two(t.hour)}:${two(t.minute)}';
     return Container(
       width: double.infinity,
-      color: Colors.yellow.shade100,
-      padding: const EdgeInsets.all(8),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF102A72).withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Text(
-        'DEBUG regions=${ContactsRepository.lastRegions}\n'
-        'deviceContacts=${ContactsRepository.lastRawDeviceRows} '
-        '(sim=${ContactsRepository.lastSimRows}) '
-        'numbers=${ContactsRepository.lastDeviceNumbers} '
-        'keyed=${ContactsRepository.lastKeyedNumbers} '
-        'firebaseUsers=${ContactsRepository.lastFirebaseCount}\n'
-        'onApp=${ContactsRepository.lastExactMatches + ContactsRepository.lastLooseMatches} '
-        '(exact=${ContactsRepository.lastExactMatches}, loose=${ContactsRepository.lastLooseMatches})  '
-        'notOnApp=${ContactsRepository.lastNotOnApp}'
-        '${err.isEmpty ? '' : '\nERROR: $err'}',
-        style: const TextStyle(fontSize: 11, color: Colors.black87),
+        'Contacts read: ${s.contactsRead} · Valid numbers: ${s.validNumbers} '
+        '· On T.B.T.R: ${s.onApp} · Last sync: $when'
+        '${s.failedLookups > 0 ? ' · Failed lookups: ${s.failedLookups}' : ''}',
+        key: const Key('contactsDiagnostics'),
+        style: const TextStyle(fontSize: 11, color: Color(0xFF102A72)),
       ),
     );
   }
@@ -505,7 +526,7 @@ class _ContactScreenState extends State<ContactScreen>
   Widget _buildContactList(ContactBook book) {
     // Flat item model so the whole list is lazily built by ListView.builder
     // even with hundreds of contacts.
-    final items = <Object>[_ContactItem.debug];
+    final items = <Object>[if (_showDiagnostics) _ContactItem.diagnostics];
     if (book.total == 0) {
       items.add(_ContactItem.empty);
     } else {
@@ -519,13 +540,16 @@ class _ContactScreenState extends State<ContactScreen>
       }
     }
 
-    return ListView.builder(
+    return RefreshIndicator(
+      onRefresh: _pullToRefresh,
+      child: ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.only(bottom: 24),
       itemCount: items.length,
       itemBuilder: (context, index) {
         final item = items[index];
 
-        if (item == _ContactItem.debug) return _buildDebugBar();
+        if (item == _ContactItem.diagnostics) return _buildDiagnostics();
         if (item == _ContactItem.empty) {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 40),
@@ -564,12 +588,13 @@ class _ContactScreenState extends State<ContactScreen>
         }
         return _InviteTile(contact: contact, onInvite: () => _invite(contact));
       },
+      ),
     );
   }
 }
 
 /// Sentinels for the flat contacts list model.
-enum _ContactItem { debug, empty }
+enum _ContactItem { diagnostics, empty }
 
 class _SectionHeader {
   final String title;

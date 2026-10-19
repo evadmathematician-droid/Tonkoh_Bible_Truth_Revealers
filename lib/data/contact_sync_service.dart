@@ -15,8 +15,10 @@ import 'display_names.dart';
 /// ever opening the Contacts screen:
 ///
 ///  * on launch, once signed in;
+///  * right after the contacts permission is granted;
 ///  * when the app comes back to the foreground (debounced);
-///  * when the phone's contacts change (a contact saved or renamed).
+///  * when the phone's contacts change (a contact saved or renamed);
+///  * on pull-to-refresh in the Contacts screen.
 ///
 /// Matching happens on the device (ContactsRepository.fetchContactBook);
 /// the address book itself is never uploaded.
@@ -31,7 +33,8 @@ class ContactSyncService with WidgetsBindingObserver {
   static const String _askedKey = 'contacts_perm_auto_asked_v1';
 
   bool _started = false;
-  bool _syncing = false;
+  bool _listening = false;
+  Future<void>? _running;
   bool _pending = false;
   Timer? _changeDebounce;
 
@@ -43,14 +46,27 @@ class ContactSyncService with WidgetsBindingObserver {
   /// Safe to call more than once; only the first call does anything.
   Future<void> start() async {
     await DisplayNames.instance.load();
+    await ContactsCache.instance.load();
     if (_started || !_supported) return;
     _started = true;
 
     WidgetsBinding.instance.addObserver(this);
 
     if (!await _ensurePermission()) return;
-    FlutterContacts.addListener(_onContactsChanged);
+    _listen();
     unawaited(sync());
+  }
+
+  /// Call after the Contacts screen obtained the permission.
+  Future<void> onPermissionGranted() async {
+    _listen();
+    await sync();
+  }
+
+  void _listen() {
+    if (_listening) return;
+    _listening = true;
+    FlutterContacts.addListener(_onContactsChanged);
   }
 
   Future<bool> _ensurePermission() async {
@@ -79,38 +95,40 @@ class ContactSyncService with WidgetsBindingObserver {
   }
 
   Future<void> _onResumed() async {
-    // Permission may have been granted from the Contacts screen or system
-    // settings since launch.
+    // Permission may have been granted from system settings since launch.
     if (!await Permission.contacts.isGranted) return;
-    FlutterContacts.removeListener(_onContactsChanged);
-    FlutterContacts.addListener(_onContactsChanged);
+    _listen();
     if (ContactsCache.instance.syncedWithin(resumeDebounce)) return;
     await sync();
   }
 
-  /// Rescan now. Concurrent calls collapse into one follow-up pass.
-  Future<void> sync() async {
-    if (_syncing) {
+  /// Rescan now; completes when the scan (and any follow-up a concurrent
+  /// call asked for) is done.
+  Future<void> sync() {
+    if (_running != null) {
       _pending = true;
-      return;
+      return _running!;
     }
-    _syncing = true;
+    return _running = _loop().whenComplete(() => _running = null);
+  }
+
+  Future<void> _loop() async {
     try {
       do {
         _pending = false;
-        final book = await ContactsRepository.fetchContactBook();
-        // No users came back (offline, read failed) — every contact would
-        // look "not on the app"; keep what we already have.
-        if (ContactsRepository.lastFirebaseCount == 0 &&
-            ContactsCache.instance.hasLoadedOnce) {
-          break;
-        }
-        ContactsCache.instance.setBook(book);
+        final cache = ContactsCache.instance;
+        final book =
+            await ContactsRepository.fetchContactBook(previous: cache.book);
+        final stats = ContactsRepository.lastStats;
+        // Every lookup failed (offline): keep what we already have rather
+        // than showing everyone as "not on the app".
+        final allFailed = stats.validNumbers > 0 &&
+            stats.failedLookups == stats.validNumbers;
+        if (allFailed && cache.hasLoadedOnce) break;
+        cache.setBook(book, stats);
       } while (_pending);
     } catch (e) {
       debugPrint('ContactSyncService: sync failed: $e');
-    } finally {
-      _syncing = false;
     }
   }
 }

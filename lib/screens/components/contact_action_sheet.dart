@@ -38,8 +38,8 @@ Future<void> showContactActionSheet({
                 padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
                 child: Row(
                   children: [
-                    ProfileAvatar(
-                        name: contact.name, photoUrl: contact.photoUrl, size: 48),
+                    CachedProfileAvatar(
+                        uid: contact.uid, name: contact.name, size: 48),
                     const SizedBox(width: 14),
                     Expanded(
                       child: Column(
