@@ -1,11 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:intl/intl.dart';
 
-import '../screens/auth/auth_manager.dart';
+import '../admin/admin_pin.dart';
 
 class FeedbackItem {
   final String id;
@@ -41,7 +42,8 @@ class AdminScreen extends StatefulWidget {
 }
 
 class _AdminScreenState extends State<AdminScreen> {
-  bool _isUnlocked = false;
+  // Asked once per app session (until the app is closed).
+  bool _isUnlocked = AdminPin.instance.unlockedThisSession;
 
   @override
   Widget build(BuildContext context) {
@@ -236,40 +238,55 @@ class _AdminPinGateState extends State<_AdminPinGate> {
   final _pinController = TextEditingController();
   String? _error;
   bool _checking = false;
+  bool _showPin = false;
+  Timer? _lockTicker;
 
-  // The PIN alone is checked on this phone only, so it's a second step:
-  // the account must also be on the server's admins/{phone} list, which is
-  // what the database rules actually enforce.
+  // The PIN is the gate. (The earlier extra check against the server's
+  // admins/{phone} list blocked everyone — that node never existed. The
+  // database rules still use admins/ for approve/reject writes.)
   Future<void> _unlock() async {
-    if (!AuthManager.isAdminPinCorrect(_pinController.text)) {
-      setState(() {
-        _error = 'Incorrect PIN';
-        _pinController.clear();
-      });
-      return;
-    }
+    if (_checking) return;
     setState(() => _checking = true);
-    final isAdmin = await AuthManager.isServerAdmin();
+    final error = await AdminPin.instance.verify(_pinController.text);
     if (!mounted) return;
     setState(() => _checking = false);
-    if (isAdmin) {
+    if (error == null) {
       widget.onUnlock();
-    } else {
-      setState(() {
-        _error = 'This account is not on the admin list';
-        _pinController.clear();
-      });
+      return;
     }
+    setState(() {
+      _error = error;
+      _pinController.clear();
+    });
+    _startLockTicker();
+  }
+
+  // While locked out, refresh the countdown and re-enable Enter at the end.
+  void _startLockTicker() {
+    _lockTicker?.cancel();
+    if (AdminPin.instance.lockRemaining == null) return;
+    _lockTicker = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) return t.cancel();
+      final left = AdminPin.instance.lockRemaining;
+      setState(() {
+        _error = left == null
+            ? null
+            : 'Too many wrong tries. Try again in ${left.inSeconds + 1} s.';
+      });
+      if (left == null) t.cancel();
+    });
   }
 
   @override
   void dispose() {
+    _lockTicker?.cancel();
     _pinController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final locked = AdminPin.instance.lockRemaining != null;
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -280,54 +297,84 @@ class _AdminPinGateState extends State<_AdminPinGate> {
           ),
         ),
         child: Center(
-          child: Card(
-            margin: const EdgeInsets.symmetric(horizontal: 20),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-            elevation: 10,
-            child: Padding(
-              padding: const EdgeInsets.all(28),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('🔒 Admin Access',
-                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF163E8E))),
-                  const SizedBox(height: 8),
-                  const Text('Enter PIN to continue',
-                      textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: Colors.grey)),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: _pinController,
-                    obscureText: true,
-                    keyboardType: TextInputType.number,
-                    maxLength: 4,
-                    onChanged: (_) => setState(() => _error = null),
-                    decoration: InputDecoration(
-                      labelText: 'PIN',
-                      counterText: '',
-                      errorText: _error,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      onPressed: _checking ? null : _unlock,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2E5BFF),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: SingleChildScrollView(
+            child: Card(
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              shape:
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              elevation: 10,
+              child: Padding(
+                padding: const EdgeInsets.all(28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('🔒 Admin Access',
+                        style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF163E8E))),
+                    const SizedBox(height: 8),
+                    const Text('Enter the 4-digit PIN to continue',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 14, color: Colors.grey)),
+                    const SizedBox(height: 20),
+                    TextField(
+                      key: const Key('adminPinField'),
+                      controller: _pinController,
+                      obscureText: !_showPin,
+                      obscuringCharacter: '●',
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      maxLength: 4,
+                      autofocus: true,
+                      enabled: !locked,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 24, letterSpacing: 12),
+                      onChanged: (_) => setState(() => _error = null),
+                      onSubmitted: (_) => _unlock(),
+                      decoration: InputDecoration(
+                        labelText: 'PIN',
+                        counterText: '',
+                        errorText: _error,
+                        errorMaxLines: 2,
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                        suffixIcon: IconButton(
+                          tooltip: _showPin ? 'Hide PIN' : 'Show PIN',
+                          icon: Icon(_showPin
+                              ? Icons.visibility_off
+                              : Icons.visibility),
+                          onPressed: () => setState(() => _showPin = !_showPin),
+                        ),
                       ),
-                      child: _checking
-                          ? const SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                            )
-                          : const Text('Unlock', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        key: const Key('adminPinEnter'),
+                        onPressed: (_checking || locked) ? null : _unlock,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2E5BFF),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16)),
+                        ),
+                        child: _checking
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Text('Enter',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white)),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

@@ -25,6 +25,11 @@
       }
     },
 
+    "config": {
+      ".read": "auth != null",
+      ".write": false
+    },
+
     "admins": {
       ".read": "auth != null",
       ".write": false
