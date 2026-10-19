@@ -20,14 +20,14 @@ dependencies:
 
   flutter_webrtc: ^1.6.0
   flutter_local_notifications: ^18.0.0
-  flutter_foreground_task: ^8.0.0
+  flutter_foreground_task: ^11.0.3
 
   just_audio: ^0.9.42
   audio_service: ^0.18.15
   video_player: ^2.9.5
   cached_network_image: ^3.4.1
   image_picker: ^1.1.2
-  record: ^6.0.0
+  record: ^7.1.2
 
   dio: ^5.7.0
   http: ^1.6.0
