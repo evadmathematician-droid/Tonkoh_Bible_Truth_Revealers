@@ -1,0 +1,60 @@
+== gradlew stop 
+'gradlew.bat' is not recognized as an internal or external command,
+operable program or batch file.
+== apk release split 
+Resolving dependencies...
+Downloading packages...
+! device_info_plus 12.4.0 from path third_party\device_info_plus (overridden)
+! firebase_auth 6.6.1 from path third_party\firebase_auth (overridden)
+! firebase_core 4.14.0 from path third_party\firebase_core (overridden)
+! firebase_database 12.5.0 from path third_party\firebase_database (overridden)
+! firebase_remote_config 6.7.0 from path third_party\firebase_remote_config (overridden)
+! flutter_webrtc 1.6.0 from path third_party\flutter_webrtc (overridden)
+! package_info_plus 9.0.1 from path third_party\package_info_plus (overridden)
+! pasteboard 0.4.0 from path third_party\pasteboard (overridden)
+! share_plus 11.1.0 from path third_party\share_plus (overridden)
+Got dependencies!
+85 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Running Gradle task 'assembleRelease'...                        
+Skipping assets entry "packages/record_web/assets/js/record.worklet.js" since its configured platform(s) did not match the target platform.
+Configured platforms: web
+Target platform: android
+
+Font asset "CupertinoIcons.ttf" was tree-shaken, reducing it from 257628 to 848 bytes (99.7% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.
+Font asset "MaterialIcons-Regular.otf" was tree-shaken, reducing it from 1645184 to 10740 bytes (99.3% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.
+Running Gradle task 'assembleRelease'...                         1141.0s
+√ Built build\app\outputs\flutter-apk\app-armeabi-v7a-release.apk (31.0MB)
+√ Built build\app\outputs\flutter-apk\app-arm64-v8a-release.apk (37.9MB)
+√ Built build\app\outputs\flutter-apk\app-x86_64-release.apk (43.2MB)
+apk exit 0 
+'gradlew.bat' is not recognized as an internal or external command,
+operable program or batch file.
+== appbundle 
+Resolving dependencies...
+Downloading packages...
+! device_info_plus 12.4.0 from path third_party\device_info_plus (overridden)
+! firebase_auth 6.6.1 from path third_party\firebase_auth (overridden)
+! firebase_core 4.14.0 from path third_party\firebase_core (overridden)
+! firebase_database 12.5.0 from path third_party\firebase_database (overridden)
+! firebase_remote_config 6.7.0 from path third_party\firebase_remote_config (overridden)
+! flutter_webrtc 1.6.0 from path third_party\flutter_webrtc (overridden)
+! package_info_plus 9.0.1 from path third_party\package_info_plus (overridden)
+! pasteboard 0.4.0 from path third_party\pasteboard (overridden)
+! share_plus 11.1.0 from path third_party\share_plus (overridden)
+Got dependencies!
+85 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Running Gradle task 'bundleRelease'...                          
+Skipping assets entry "packages/record_web/assets/js/record.worklet.js" since its configured platform(s) did not match the target platform.
+Configured platforms: web
+Target platform: android
+
+Font asset "CupertinoIcons.ttf" was tree-shaken, reducing it from 257628 to 848 bytes (99.7% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.
+Font asset "MaterialIcons-Regular.otf" was tree-shaken, reducing it from 1645184 to 10740 bytes (99.3% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.
+Running Gradle task 'bundleRelease'...                            645.0s
+√ Built build\app\outputs\bundle\release\app-release.aab (85.2MB)
+aab exit 0 
+'gradlew.bat' is not recognized as an internal or external command,
+operable program or batch file.
+== DONE 
