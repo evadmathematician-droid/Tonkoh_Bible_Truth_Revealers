@@ -115,7 +115,7 @@ the app to see `[FeedOpen] N posts visible after X ms (from the phone)`.
 | Step | Result |
 |---|---|
 | `flutter analyze` | No issues found |
-| `flutter test` | all pass (258, plus 2 opt-in preview renders skipped) |
+| `flutter test` | all pass (259, plus 2 opt-in preview renders skipped) |
 | `flutter build apk --release --split-per-abi` | **OK.** `app-arm64-v8a-release.apk` 37.9 MB, armeabi-v7a 31.0 MB, x86_64 43.2 MB |
 | `flutter build appbundle --release` | **OK.** `app-release.aab` 85.2 MB |
 | KGP warning | **none** in the full output (`docs/build_logs/feed_release_build.txt`) |
