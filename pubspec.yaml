@@ -1,7 +1,7 @@
 name: tbtrapp
 description: TBTR App - Gospel audio, chat, and calling
 publish_to: 'none'
-version: 3.2.2+25
+version: 3.2.2+26
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
