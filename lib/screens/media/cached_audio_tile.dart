@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+
+import '../../ui/chat_theme.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../services/resumable_downloader.dart';
@@ -54,7 +56,7 @@ class _CachedAudioTileState extends State<CachedAudioTile> {
   Duration _position = Duration.zero;
   Duration? _duration;
 
-  Color get _fg => widget.isMine ? Colors.white : const Color(0xFF102A72);
+  Color get _fg => ChatTheme.of(context).accent(widget.isMine);
   ResumableDownloader get _dl => ResumableDownloader.instance;
 
   @override

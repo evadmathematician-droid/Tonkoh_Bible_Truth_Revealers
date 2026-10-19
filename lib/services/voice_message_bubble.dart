@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+
+import '../ui/chat_theme.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../data/private_message.dart';
 
@@ -142,12 +144,11 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
     final progress = _progress;
     final listened = widget.message.listened;
 
-    final fgColor = widget.isMine
-        ? Colors.white
-        : (listened ? Colors.grey.shade700 : Colors.black87);
-    final inactiveColor = widget.isMine
-        ? Colors.white.withValues(alpha: 0.35)
-        : Colors.grey.shade400;
+    final palette = ChatTheme.of(context);
+    final fgColor = !widget.isMine && listened
+        ? palette.incomingMeta
+        : palette.text(widget.isMine);
+    final inactiveColor = palette.text(widget.isMine).withValues(alpha: 0.35);
 
     return Row(
       mainAxisSize: MainAxisSize.min,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/private_message.dart';
+import '../../ui/chat_theme.dart';
 import '../components/message_input_bar.dart';
 import 'chat_helpers.dart';
 import '../../widgets/waveform_widget.dart';
@@ -61,94 +62,112 @@ class PrivateChatInputBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Container(
-        color: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (replyingTo != null)
-              _ReplyPreviewBar(
-                  message: replyingTo!,
-                  senderName: replyingToName,
-                  onCancel: onCancelReply),
-            if (isUploadingAttachment)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 4),
-                child: LinearProgressIndicator(minHeight: 3),
-              ),
-            // IndexedStack (not an if/else swap) so the TextField below stays
-            // mounted — and keeps whatever focus/keyboard state it had —
-            // the whole time the user is recording. Swapping it out of the
-            // tree entirely (the old approach) drops its focus the instant
-            // recording starts, which is what silently closed the keyboard;
-            // this way recording layers on top instead of tearing the input
-            // row down, so the keyboard stays exactly as it was (open or
-            // closed) whether or not it was open when recording began.
-            IndexedStack(
-              index: isRecording ? 1 : 0,
-              alignment: Alignment.centerLeft,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    InputBarIconButton(
-                      icon: Icons.add_circle_outline,
-                      tooltip: 'Attach',
-                      onPressed: () => onShowAttachMenuChange(!showAttachMenu),
-                    ),
-                    InputBarIconButton(
-                      icon: Icons.emoji_emotions_outlined,
-                      tooltip: 'Sticker',
-                      onPressed: onShowStickerPicker,
-                    ),
-                    const SizedBox(width: 2),
-                    Expanded(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(minHeight: kInputBarFieldMinHeight),
-                        child: TextField(
-                          controller: controller,
-                          onChanged: onMessageInputChange,
-                          minLines: 1,
-                          maxLines: 5,
-                          textCapitalization: TextCapitalization.sentences,
-                          style: kInputBarFieldTextStyle,
-                          decoration: inputBarFieldDecoration(hintText: 'Message'),
+    final palette = ChatTheme.of(context);
+    // The bar's colour reaches under the system navigation bar too.
+    return Container(
+      decoration: BoxDecoration(
+        color: palette.inputBar,
+        boxShadow: const [
+          BoxShadow(
+              color: Color(0x1A000000), blurRadius: 6, offset: Offset(0, -1)),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (replyingTo != null)
+                _ReplyPreviewBar(
+                    message: replyingTo!,
+                    senderName: replyingToName,
+                    onCancel: onCancelReply),
+              if (isUploadingAttachment)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 4),
+                  child: LinearProgressIndicator(minHeight: 3),
+                ),
+              // IndexedStack (not an if/else swap) so the TextField below stays
+              // mounted — and keeps whatever focus/keyboard state it had —
+              // the whole time the user is recording. Swapping it out of the
+              // tree entirely (the old approach) drops its focus the instant
+              // recording starts, which is what silently closed the keyboard;
+              // this way recording layers on top instead of tearing the input
+              // row down, so the keyboard stays exactly as it was (open or
+              // closed) whether or not it was open when recording began.
+              IndexedStack(
+                index: isRecording ? 1 : 0,
+                alignment: Alignment.centerLeft,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      InputBarIconButton(
+                        icon: Icons.add_circle_outline,
+                        tooltip: 'Attach',
+                        onPressed: () =>
+                            onShowAttachMenuChange(!showAttachMenu),
+                      ),
+                      InputBarIconButton(
+                        icon: Icons.emoji_emotions_outlined,
+                        tooltip: 'Sticker',
+                        onPressed: onShowStickerPicker,
+                      ),
+                      const SizedBox(width: 2),
+                      Expanded(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                              minHeight: kInputBarFieldMinHeight),
+                          child: TextField(
+                            controller: controller,
+                            onChanged: onMessageInputChange,
+                            minLines: 1,
+                            maxLines: 5,
+                            textCapitalization: TextCapitalization.sentences,
+                            style: kInputBarFieldTextStyle.copyWith(
+                                color: palette.inputText),
+                            decoration:
+                                inputBarFieldDecoration(hintText: 'Message')
+                                    .copyWith(
+                                        hintStyle: TextStyle(
+                                            fontSize: 15,
+                                            color: palette.inputHint)),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 4),
-                    controller.text.trim().isEmpty
-                        ? InputBarIconButton(
-                            icon: Icons.mic,
-                            tooltip: 'Record voice message',
-                            onPressed: onStartRecording,
-                          )
-                        : InputBarSendButton(
-                            tooltip: 'Send',
-                            onPressed: onSendMessage,
-                          ),
-                  ],
-                ),
-                _RecordingBar(
-                  isPaused: isPaused,
-                  seconds: recordingSeconds,
-                  liveWaveform: liveWaveform,
-                  onCancel: onCancelRecording,
-                  onTogglePause: onTogglePauseRecording,
-                  onStopAndSend: onStopRecordingAndSend,
-                ),
-              ],
-            ),
-            if (showAttachMenu && !isRecording)
-              _AttachMenu(
-                onPickImageVideo: onPickImageVideo,
-                onPickAudio: onPickAudio,
-                onPickFile: onPickFile,
+                      const SizedBox(width: 4),
+                      controller.text.trim().isEmpty
+                          ? InputBarIconButton(
+                              icon: Icons.mic,
+                              tooltip: 'Record voice message',
+                              onPressed: onStartRecording,
+                            )
+                          : InputBarSendButton(
+                              tooltip: 'Send',
+                              onPressed: onSendMessage,
+                            ),
+                    ],
+                  ),
+                  _RecordingBar(
+                    isPaused: isPaused,
+                    seconds: recordingSeconds,
+                    liveWaveform: liveWaveform,
+                    onCancel: onCancelRecording,
+                    onTogglePause: onTogglePauseRecording,
+                    onStopAndSend: onStopRecordingAndSend,
+                  ),
+                ],
               ),
-          ],
+              if (showAttachMenu && !isRecording)
+                _AttachMenu(
+                  onPickImageVideo: onPickImageVideo,
+                  onPickAudio: onPickAudio,
+                  onPickFile: onPickFile,
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -161,16 +180,21 @@ class _ReplyPreviewBar extends StatelessWidget {
   final VoidCallback onCancel;
 
   const _ReplyPreviewBar(
-      {required this.message, required this.senderName, required this.onCancel});
+      {required this.message,
+      required this.senderName,
+      required this.onCancel});
 
   @override
   Widget build(BuildContext context) {
+    final palette = ChatTheme.of(context);
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: _kBrand.withValues(alpha: 0.06),
+        color: palette.chip,
         borderRadius: BorderRadius.circular(8),
+        border:
+            Border(left: BorderSide(color: palette.incomingAccent, width: 3)),
       ),
       child: Row(
         children: [
@@ -180,18 +204,23 @@ class _ReplyPreviewBar extends StatelessWidget {
               children: [
                 Text(
                   'Replying to ${senderName.isEmpty ? "message" : senderName}',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _kBrand),
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: palette.chipText),
                 ),
                 Text(
                   previewLabelFor(message),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11, color: Colors.black54),
+                  style: TextStyle(fontSize: 11, color: palette.chipText),
                 ),
               ],
             ),
           ),
-          IconButton(icon: const Icon(Icons.close, size: 18), onPressed: onCancel),
+          IconButton(
+              icon: Icon(Icons.close, size: 18, color: palette.chipText),
+              onPressed: onCancel),
         ],
       ),
     );
@@ -215,7 +244,8 @@ class _RecordingBar extends StatelessWidget {
     required this.onStopAndSend,
   });
 
-  String _fmt(int s) => '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
+  String _fmt(int s) =>
+      '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
 
   @override
   Widget build(BuildContext context) {
@@ -227,7 +257,8 @@ class _RecordingBar extends StatelessWidget {
           tooltip: 'Discard recording',
           onPressed: onCancel,
         ),
-        Icon(Icons.fiber_manual_record, color: isPaused ? Colors.grey : Colors.red, size: 14),
+        Icon(Icons.fiber_manual_record,
+            color: isPaused ? Colors.grey : Colors.red, size: 14),
         const SizedBox(width: 6),
         Text(_fmt(seconds), style: const TextStyle(fontSize: 13)),
         const SizedBox(width: 10),

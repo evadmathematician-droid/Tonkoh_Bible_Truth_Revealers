@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../ui/chat_theme.dart';
+
 /// Shared sizing + building blocks for the message-composer row used on
 /// both the Audio screen (`AudioBottomBar`) and the Private Chat screen
 /// (`PrivateChatInputBar`), so the two rows are visually and behaviourally
@@ -29,22 +31,27 @@ const Color _kSendBlue = Color(0xFF1565C0);
 class InputBarIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onPressed;
-  final Color color;
+  final Color? color;
   final String? tooltip;
 
   const InputBarIconButton({
     super.key,
     required this.icon,
     required this.onPressed,
-    this.color = _kBrandBlue,
+    this.color,
     this.tooltip,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Brand blue, or the chat palette's light accent on a dark chat bar.
+    final chat = context.dependOnInheritedWidgetOfExactType<ChatTheme>();
+    final fallback = chat?.palette.brightness == Brightness.dark
+        ? chat!.palette.incomingAccent
+        : _kBrandBlue;
     return IconButton(
       onPressed: onPressed,
-      icon: Icon(icon, size: kInputBarIconSize, color: color),
+      icon: Icon(icon, size: kInputBarIconSize, color: color ?? fallback),
       tooltip: tooltip,
       padding: EdgeInsets.zero,
       visualDensity: VisualDensity.compact,

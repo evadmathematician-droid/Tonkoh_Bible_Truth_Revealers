@@ -25,6 +25,8 @@ import '../../data/private_message.dart';
 import '../../data/profile_photo_cache.dart';
 import '../../services/resumable_downloader.dart';
 import '../../services/share_service.dart';
+import '../../ui/chat_theme.dart';
+import '../../ui/linkified_text.dart';
 import '../components/full_screen_profile_photo.dart';
 import '../../util/chat_time.dart';
 import 'chat_helpers.dart';
@@ -111,7 +113,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     // saved messages are known before the first frame — no blank screen.
     final known = AuthManager.lastKnownProfile;
     if (known != null) _applyProfile(known);
-    _otherUserPhotoBase64 = ProfilePhotoCache.instance.photoFor(_otherUid) ?? '';
+    _otherUserPhotoBase64 =
+        ProfilePhotoCache.instance.photoFor(_otherUid) ?? '';
     _init();
     _scrollController.addListener(_onScroll);
   }
@@ -164,10 +167,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   void _listenOtherUserProfile() {
-    FirebaseDatabase.instance
-        .ref('users/$_otherUid')
-        .get()
-        .then((snap) {
+    FirebaseDatabase.instance.ref('users/$_otherUid').get().then((snap) {
       final val = snap.value;
       if (!mounted) return;
       if (val is Map) {
@@ -237,8 +237,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     if (cid == null) return;
     final store = LocalChatStore.instance;
     final oldest = _messages.isEmpty ? null : _messages.first.timestamp;
-    final msgs =
-        oldest == null ? await store.latest(cid) : await store.since(cid, oldest);
+    final msgs = oldest == null
+        ? await store.latest(cid)
+        : await store.since(cid, oldest);
     if (!mounted) return;
     final previousNewest = _messages.isEmpty ? null : _messages.last.id;
     setState(() {
@@ -553,8 +554,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   /// WhatsApp-style popup shown on a single-message long-press.
   Future<void> _showMessageActions(
       PrivateMessage message, Offset globalPos) async {
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final selected = await showMenu<String>(
       context: context,
       position: RelativeRect.fromRect(
@@ -641,8 +641,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     _snack('Copied');
   }
 
-  bool get _canCopySelection =>
-      _selectedMessages.any((m) => _canCopyOne(m));
+  bool get _canCopySelection => _selectedMessages.any((m) => _canCopyOne(m));
 
   Future<void> _shareMessage(PrivateMessage m) async {
     switch (m.type) {
@@ -867,7 +866,18 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   // ──────────────────────
 
   void _showStickerPickerSheet() {
-    const stickers = ['👍', '❤️', '😂', '🙏', '🔥', '🎉', '👏', '😮', '😢', '🎶'];
+    const stickers = [
+      '👍',
+      '❤️',
+      '😂',
+      '🙏',
+      '🔥',
+      '🎉',
+      '👏',
+      '😮',
+      '😢',
+      '🎶'
+    ];
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
@@ -953,6 +963,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     final message = _messages[index];
     final isMine = message.senderId == _currentUid;
     final selected = _selectedIds.contains(message.id);
+    final palette = ChatTheme.of(context);
 
     final showDivider = index == 0 ||
         !isSameDay(
@@ -1013,27 +1024,52 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
             Icon(
               isVideo ? Icons.videocam_off_outlined : Icons.call_missed,
               size: 18,
-              color: isMine ? Colors.white : const Color(0xFFD32F2F),
+              color: isMine ? palette.outgoingText : palette.missedCall,
             ),
             const SizedBox(width: 8),
             Text(
               isVideo ? 'Missed video call' : 'Missed voice call',
-              style: TextStyle(
-                color: isMine ? Colors.white : const Color(0xFF1B1B1B),
-                fontSize: 14,
-              ),
+              style: TextStyle(color: palette.text(isMine), fontSize: 14),
             ),
           ],
         );
         break;
       default:
-        content = Text(
+        content = LinkifiedText(
           message.text,
-          style: TextStyle(
-              color: isMine ? Colors.white : const Color(0xFF1B1B1B),
-              fontSize: 14),
+          style:
+              TextStyle(color: palette.text(isMine), fontSize: 15, height: 1.3),
+          linkColor: palette.link(isMine),
         );
     }
+
+    // Time + tick: inside the bubble (bottom right), or under a sticker.
+    final meta = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          messageClock(message.timestamp),
+          style: TextStyle(
+              fontSize: 10.5,
+              color: message.type == 'sticker'
+                  ? palette.chipText
+                  : palette.meta(isMine)),
+        ),
+        if (isMine) ...[
+          const SizedBox(width: 4),
+          MessageStatusTick(
+            status: message.status,
+            isRead: _otherUserLastReadTimestamp >= message.timestamp,
+            color: message.type == 'sticker'
+                ? palette.chipText
+                : palette.outgoingMeta,
+            readColor: message.type == 'sticker'
+                ? palette.incomingLink
+                : palette.readTick,
+          ),
+        ],
+      ],
+    );
 
     final bubble = GestureDetector(
       onLongPressStart: (details) {
@@ -1047,7 +1083,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         if (_selectionMode) _toggleSelected(message.id);
       },
       child: Container(
-        color: selected ? _kBrand.withValues(alpha: 0.12) : Colors.transparent,
+        color: selected
+            ? palette.outgoing.withValues(alpha: 0.18)
+            : Colors.transparent,
         padding: const EdgeInsets.symmetric(vertical: 4),
         // While selecting, swallow taps inside the bubble (image preview,
         // video open, audio play) so a tap toggles selection instead.
@@ -1068,7 +1106,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                           ? Icons.check_circle
                           : Icons.radio_button_unchecked,
                       size: 20,
-                      color: selected ? _kBrand : Colors.grey,
+                      color: selected ? palette.outgoing : palette.incomingMeta,
                     ),
                     const SizedBox(width: 6),
                   ],
@@ -1090,6 +1128,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                             isMine: isMine,
                             senderLabel: _replySenderLabel(message)),
                         StickerMessageBubble(stickerId: message.stickerId),
+                        Container(
+                          margin: const EdgeInsets.only(top: 2),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: palette.chip,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: meta,
+                        ),
                       ],
                     )
                   else
@@ -1097,21 +1145,33 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                       child: Container(
                         constraints: BoxConstraints(
                             maxWidth: MediaQuery.of(context).size.width * 0.8),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.fromLTRB(12, 8, 10, 6),
                         decoration: BoxDecoration(
-                          color:
-                              isMine ? const Color(0xFF1565C0) : Colors.white,
-                          borderRadius: BorderRadius.circular(14),
+                          color: palette.bubble(isMine),
+                          borderRadius: BorderRadius.only(
+                            topLeft: const Radius.circular(16),
+                            topRight: const Radius.circular(16),
+                            bottomLeft: Radius.circular(isMine ? 16 : 4),
+                            bottomRight: Radius.circular(isMine ? 4 : 16),
+                          ),
+                          boxShadow: const [
+                            BoxShadow(
+                                color: Color(0x14000000),
+                                blurRadius: 2,
+                                offset: Offset(0, 1)),
+                          ],
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             ReplyQuotePreview(
-                            message: message,
-                            isMine: isMine,
-                            senderLabel: _replySenderLabel(message)),
+                                message: message,
+                                isMine: isMine,
+                                senderLabel: _replySenderLabel(message)),
                             content,
+                            const SizedBox(height: 3),
+                            Align(
+                                alignment: Alignment.bottomRight, child: meta),
                           ],
                         ),
                       ),
@@ -1124,27 +1184,6 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                         size: 28),
                   ],
                 ],
-              ),
-              Padding(
-                padding: EdgeInsets.only(
-                    top: 2, left: isMine ? 0 : 40, right: isMine ? 4 : 0),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      messageClock(message.timestamp),
-                      style:
-                          const TextStyle(fontSize: 10, color: Colors.black45),
-                    ),
-                    if (isMine) ...[
-                      const SizedBox(width: 4),
-                      MessageStatusTick(
-                          status: message.status,
-                          isRead:
-                              _otherUserLastReadTimestamp >= message.timestamp),
-                    ],
-                  ],
-                ),
               ),
             ],
           ),
@@ -1165,8 +1204,8 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   /// Leone"). Falls back to whatever was stored if it isn't a known ISO.
   String _countryLabel(String iso) {
     if (iso.trim().isEmpty) return '';
-    final match =
-        countries.where((c) => c.code.toUpperCase() == iso.trim().toUpperCase());
+    final match = countries
+        .where((c) => c.code.toUpperCase() == iso.trim().toUpperCase());
     if (match.isEmpty) return iso.trim();
     final c = match.first;
     return '${c.flag}  ${c.name}';
@@ -1359,71 +1398,72 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   Widget build(BuildContext context) {
     // Rebuild when a contact sync renames the other person.
     context.watch<DisplayNames>();
-    return Scaffold(
-      // Explicit (matches the default) — the body, including the input
-      // bar below, resizes correctly above the keyboard this way.
-      resizeToAvoidBottomInset: true,
-      appBar: _selectionMode ? _selectionAppBar() : _chatAppBar(),
-      // NOTE: input bar moved out of `bottomNavigationBar` and into the
-      // body's Column below. bottomNavigationBar does not reliably track
-      // the keyboard inset — especially when its own height changes
-      // dynamically (reply preview / upload bar / recording bar / attach
-      // menu), which was hiding the bar behind the keyboard.
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFFF3F7FF), Colors.white],
-          ),
-        ),
-        child: Column(
-          children: [
-            Expanded(
-              // Reversed: item 0 is the newest message at the bottom, so the
-              // chat opens on it immediately; older pages are prepended as
-              // the top is approached (see _onScroll / _loadOlder).
-              child: ListView.builder(
-                controller: _scrollController,
-                reverse: true,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                itemCount: _messages.length,
-                itemBuilder: (context, i) =>
-                    _buildMessageRow(context, _messages.length - 1 - i),
+    // "Morning Lilac" — follows the phone's light/dark setting.
+    final palette =
+        ChatPalette.forBrightness(MediaQuery.platformBrightnessOf(context));
+    return ChatTheme(
+      palette: palette,
+      child: Scaffold(
+        backgroundColor: palette.background,
+        // Explicit (matches the default) — the body, including the input
+        // bar below, resizes correctly above the keyboard this way.
+        resizeToAvoidBottomInset: true,
+        appBar: _selectionMode ? _selectionAppBar() : _chatAppBar(),
+        // NOTE: input bar moved out of `bottomNavigationBar` and into the
+        // body's Column below. bottomNavigationBar does not reliably track
+        // the keyboard inset — especially when its own height changes
+        // dynamically (reply preview / upload bar / recording bar / attach
+        // menu), which was hiding the bar behind the keyboard.
+        body: ChatBackground(
+          palette: palette,
+          child: Column(
+            children: [
+              Expanded(
+                // Reversed: item 0 is the newest message at the bottom, so the
+                // chat opens on it immediately; older pages are prepended as
+                // the top is approached (see _onScroll / _loadOlder).
+                child: ListView.builder(
+                  controller: _scrollController,
+                  reverse: true,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  itemCount: _messages.length,
+                  itemBuilder: (context, i) =>
+                      _buildMessageRow(context, _messages.length - 1 - i),
+                ),
               ),
-            ),
-            // ✅ Input bar now lives in the body, below the message list,
-            // so it moves correctly with the keyboard.
-            PrivateChatInputBar(
-              isUploadingAttachment: _isUploadingAttachment,
-              replyingTo: _replyingTo,
-              replyingToName: _replyingTo == null
-                  ? ''
-                  : (_replyingTo!.senderId == _currentUid
-                      ? 'yourself'
-                      : _otherUserName),
-              onCancelReply: () => setState(() => _replyingTo = null),
-              isRecording: _isRecording,
-              isPaused: _isPaused,
-              recordingSeconds: _recordingSeconds,
-              onCancelRecording: _cancelVoiceRecording,
-              liveWaveform: _voiceRecorder.liveWaveform,
-              onTogglePauseRecording: _togglePauseRecording,
-              onStopRecordingAndSend: _stopVoiceRecordingAndSend,
-              onStartRecording: _startVoiceRecording,
-              controller: _messageController,
-              onMessageInputChange: (v) => setState(() {}),
-              onSendMessage: _sendMessage,
-              showAttachMenu: _showAttachMenu,
-              onShowAttachMenuChange: (v) =>
-                  setState(() => _showAttachMenu = v),
-              onPickImageVideo: _pickImageVideo,
-              onPickAudio: _pickAudio,
-              onPickFile: _pickFile,
-              onShowStickerPicker: _showStickerPickerSheet,
-            ),
-          ],
+              // ✅ Input bar now lives in the body, below the message list,
+              // so it moves correctly with the keyboard.
+              PrivateChatInputBar(
+                isUploadingAttachment: _isUploadingAttachment,
+                replyingTo: _replyingTo,
+                replyingToName: _replyingTo == null
+                    ? ''
+                    : (_replyingTo!.senderId == _currentUid
+                        ? 'yourself'
+                        : _otherUserName),
+                onCancelReply: () => setState(() => _replyingTo = null),
+                isRecording: _isRecording,
+                isPaused: _isPaused,
+                recordingSeconds: _recordingSeconds,
+                onCancelRecording: _cancelVoiceRecording,
+                liveWaveform: _voiceRecorder.liveWaveform,
+                onTogglePauseRecording: _togglePauseRecording,
+                onStopRecordingAndSend: _stopVoiceRecordingAndSend,
+                onStartRecording: _startVoiceRecording,
+                controller: _messageController,
+                onMessageInputChange: (v) => setState(() {}),
+                onSendMessage: _sendMessage,
+                showAttachMenu: _showAttachMenu,
+                onShowAttachMenuChange: (v) =>
+                    setState(() => _showAttachMenu = v),
+                onPickImageVideo: _pickImageVideo,
+                onPickAudio: _pickAudio,
+                onPickFile: _pickFile,
+                onShowStickerPicker: _showStickerPickerSheet,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1436,18 +1476,21 @@ class _DateDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = ChatTheme.of(context);
     return Center(
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 10),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         decoration: BoxDecoration(
-          color: _kBrand.withValues(alpha: 0.08),
+          color: palette.chip,
           borderRadius: BorderRadius.circular(10),
         ),
         child: Text(
           label,
-          style: const TextStyle(
-              fontSize: 11, color: _kBrand, fontWeight: FontWeight.w600),
+          style: TextStyle(
+              fontSize: 11.5,
+              color: palette.chipText,
+              fontWeight: FontWeight.w600),
         ),
       ),
     );

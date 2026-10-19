@@ -12,6 +12,7 @@ import '../../cloudinary/cloudinary_upload.dart';
 import '../../data/private_message.dart';
 import '../../util/base64_image_cache.dart';
 import '../../services/share_service.dart';
+import '../../ui/chat_theme.dart';
 import '../../widgets/media_download_button.dart';
 import '../components/profile_avatar.dart' show avatarInitials;
 import '../media/cached_audio_tile.dart';
@@ -112,16 +113,15 @@ class ReplyQuotePreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (message.replyToId.isEmpty) return const SizedBox.shrink();
+    final palette = ChatTheme.of(context);
+    final accent = palette.accent(isMine);
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
-        color:
-            isMine ? Colors.white.withValues(alpha: 0.15) : _kBrand.withValues(alpha: 0.06),
+        color: accent.withValues(alpha: isMine ? 0.15 : 0.08),
         borderRadius: BorderRadius.circular(8),
-        border: Border(
-          left: BorderSide(color: isMine ? Colors.white : _kBrand, width: 3),
-        ),
+        border: Border(left: BorderSide(color: accent, width: 3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -133,7 +133,7 @@ class ReplyQuotePreview extends StatelessWidget {
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.bold,
-              color: isMine ? Colors.white : _kBrand,
+              color: accent,
             ),
           ),
           Text(
@@ -142,7 +142,7 @@ class ReplyQuotePreview extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 11,
-              color: isMine ? Colors.white.withValues(alpha: 0.85) : Colors.black54,
+              color: palette.secondary(isMine),
             ),
           ),
         ],
@@ -476,7 +476,7 @@ class FileMessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isMine ? Colors.white : _kBrand;
+    final color = ChatTheme.of(context).accent(isMine);
     return InkWell(
       onTap: () => _openFile(context),
       child: Row(
@@ -608,7 +608,7 @@ class _VoiceMessageBubbleState extends State<VoiceMessageBubble> {
 
   @override
   Widget build(BuildContext context) {
-    final color = widget.isMine ? Colors.white : _kBrand;
+    final color = ChatTheme.of(context).accent(widget.isMine);
     final total = _totalDuration ?? Duration(seconds: widget.duration);
     final progress = total.inMilliseconds == 0
         ? 0.0
