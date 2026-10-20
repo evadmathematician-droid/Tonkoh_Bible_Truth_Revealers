@@ -74,11 +74,12 @@ class LinkPreviewService {
       {String sharedText = '', bool rehost = true}) async {
     var base = await _cache?.get(url);
     if (base == null || (rehost && _needsRehost(base))) {
-      base = await (_inFlight[url] ??=
+      final key = '$url|$rehost';
+      base = await (_inFlight[key] ??=
           // (Block body: returning the removed Future would make it wait
           // on itself.)
           _build(url, rehost: rehost).whenComplete(() {
-        _inFlight.remove(url);
+        _inFlight.remove(key);
       }));
     }
     return sharedText.isEmpty ? base : base.copyWith(sharedText: sharedText);
