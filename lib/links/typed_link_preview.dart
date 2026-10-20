@@ -32,7 +32,8 @@ class _TypedLinkPreviewState extends State<TypedLinkPreview> {
   LinkPreview? _preview;
   bool _loading = false;
 
-  LinkPreviewService get _service => widget.service ?? LinkPreviewService.instance;
+  LinkPreviewService get _service =>
+      widget.service ?? LinkPreviewService.instance;
 
   @override
   void initState() {
@@ -67,7 +68,7 @@ class _TypedLinkPreviewState extends State<TypedLinkPreview> {
       return;
     }
     if (url == _dismissedUrl) return;
-    _debounce = Timer(const Duration(milliseconds: 600), () => _load(url));
+    _debounce = Timer(const Duration(milliseconds: 400), () => _load(url));
   }
 
   Future<void> _load(String url) async {
@@ -91,8 +92,8 @@ class _TypedLinkPreviewState extends State<TypedLinkPreview> {
   Widget build(BuildContext context) {
     if (_loading) {
       return const Padding(
-        padding: EdgeInsets.fromLTRB(12, 6, 12, 0),
-        child: LinearProgressIndicator(minHeight: 2),
+        padding: EdgeInsets.fromLTRB(8, 6, 8, 0),
+        child: LinkPreviewShimmer(),
       );
     }
     final p = _preview;
@@ -110,6 +111,93 @@ class _TypedLinkPreviewState extends State<TypedLinkPreview> {
             _dismissedUrl = p.url;
             _set(null, loading: false);
           },
+        ),
+      ),
+    );
+  }
+}
+
+/// Grey skeleton of the compact card with a moving sheen, shown while the
+/// link's details are being fetched.
+class LinkPreviewShimmer extends StatefulWidget {
+  const LinkPreviewShimmer({super.key});
+
+  @override
+  State<LinkPreviewShimmer> createState() => _LinkPreviewShimmerState();
+}
+
+class _LinkPreviewShimmerState extends State<LinkPreviewShimmer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1100))
+    ..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget bar(double widthFactor, double height) => FractionallySizedBox(
+          widthFactor: widthFactor,
+          child: Container(
+            height: height,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE3E4E8),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+        );
+    return Semantics(
+      label: 'Loading link preview',
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: AnimatedBuilder(
+          animation: _c,
+          builder: (context, child) => ShaderMask(
+            blendMode: BlendMode.srcATop,
+            shaderCallback: (rect) => LinearGradient(
+              begin: Alignment(3 * _c.value - 2, 0),
+              end: Alignment(3 * _c.value - 1, 0),
+              colors: const [
+                Color(0xFFE3E4E8),
+                Color(0xFFF6F7F9),
+                Color(0xFFE3E4E8),
+              ],
+            ).createShader(rect),
+            child: child,
+          ),
+          child: Row(children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE3E4E8),
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  bar(0.35, 10),
+                  const SizedBox(height: 8),
+                  bar(0.95, 12),
+                  const SizedBox(height: 6),
+                  bar(0.7, 12),
+                  const SizedBox(height: 8),
+                  bar(0.5, 9),
+                ],
+              ),
+            ),
+          ]),
         ),
       ),
     );

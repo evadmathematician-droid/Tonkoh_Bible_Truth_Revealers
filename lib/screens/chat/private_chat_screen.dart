@@ -1052,7 +1052,21 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         );
         final link = message.link;
         content = link == null
-            ? text
+            ? (extractFirstUrl(message.text) == null
+                ? text
+                // Older link-only message: preview fetched on this phone.
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      text,
+                      AutoLinkPreview(
+                        text: message.text,
+                        foreground: palette.text(isMine),
+                        secondary: palette.secondary(isMine),
+                        linkColor: palette.link(isMine),
+                      ),
+                    ],
+                  ))
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

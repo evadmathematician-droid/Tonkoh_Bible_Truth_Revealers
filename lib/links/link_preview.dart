@@ -32,6 +32,15 @@ class LinkPreview {
   /// Text the sharing app sent along with the link (caption / description).
   final String sharedText;
 
+  /// Video length when the site tells us (TikTok), for the card's badge.
+  final int durationSeconds;
+
+  /// Site favicon (other sites), shown next to the site name.
+  final String iconUrl;
+
+  /// Explicitly a video link (YouTube, TikTok, og:video…); see [isVideo].
+  final bool video;
+
   const LinkPreview({
     required this.url,
     this.title = '',
@@ -43,6 +52,9 @@ class LinkPreview {
     this.thumbHeight = 0,
     this.videoId = '',
     this.sharedText = '',
+    this.durationSeconds = 0,
+    this.iconUrl = '',
+    this.video = false,
   });
 
   /// A card with only what the link itself tells us (fetching failed).
@@ -67,6 +79,7 @@ class LinkPreview {
 
   /// Video links get a play button over the thumbnail.
   bool get isVideo =>
+      video ||
       kind != LinkKind.other ||
       RegExp(r'(fb\.watch|/videos?/|/reel/|/watch)', caseSensitive: false)
           .hasMatch(url);
@@ -84,6 +97,9 @@ class LinkPreview {
 
   LinkPreview copyWith({String? sharedText, String? thumbnailUrl}) =>
       LinkPreview(
+        durationSeconds: durationSeconds,
+        iconUrl: iconUrl,
+        video: video,
         url: url,
         title: title,
         description: description,
@@ -108,6 +124,9 @@ class LinkPreview {
         'thumbHeight': thumbHeight,
         'videoId': videoId,
         'sharedText': sharedText,
+        'isVideo': isVideo,
+        if (durationSeconds > 0) 'durationSeconds': durationSeconds,
+        if (iconUrl.isNotEmpty) 'iconUrl': iconUrl,
       };
 
   /// From a Firebase / JSON map; null when it isn't a usable preview.
@@ -128,6 +147,9 @@ class LinkPreview {
       thumbHeight: n(raw['thumbHeight']),
       videoId: s('videoId'),
       sharedText: s('sharedText'),
+      durationSeconds: n(raw['durationSeconds']),
+      iconUrl: s('iconUrl'),
+      video: raw['isVideo'] == true,
     );
   }
 
@@ -167,8 +189,9 @@ String? extractFirstUrl(String text) {
   return Uri.tryParse(url)?.hasAuthority == true ? url : null;
 }
 
-String _host(String url) =>
-    (Uri.tryParse(url)?.host ?? '').toLowerCase().replaceFirst(RegExp(r'^www\.'), '');
+String _host(String url) => (Uri.tryParse(url)?.host ?? '')
+    .toLowerCase()
+    .replaceFirst(RegExp(r'^www\.'), '');
 
 final RegExp _ytId = RegExp(r'^[A-Za-z0-9_-]{11}$');
 
@@ -177,7 +200,8 @@ final RegExp _ytId = RegExp(r'^[A-Za-z0-9_-]{11}$');
 String? youtubeVideoId(String url) {
   final uri = Uri.tryParse(url.trim());
   if (uri == null) return null;
-  final host = uri.host.toLowerCase().replaceFirst(RegExp(r'^(www\.|m\.|music\.)'), '');
+  final host =
+      uri.host.toLowerCase().replaceFirst(RegExp(r'^(www\.|m\.|music\.)'), '');
   String? id;
   if (host == 'youtu.be') {
     id = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : null;
@@ -213,18 +237,28 @@ bool isTikTokShortLink(String url) {
 bool isShortLink(String url) {
   final h = _host(url);
   return isTikTokShortLink(url) ||
-      const {'fb.watch', 'bit.ly', 't.co', 'tinyurl.com', 'goo.gl', 'instagr.am'}
-          .contains(h);
+      const {
+        'fb.watch',
+        'bit.ly',
+        't.co',
+        'tinyurl.com',
+        'goo.gl',
+        'instagr.am'
+      }.contains(h);
 }
 
 /// "YouTube", "TikTok", "Facebook"… or the bare host for other sites.
 String siteNameFor(String url) {
   final h = _host(url);
-  if (youtubeVideoId(url) != null || h.endsWith('youtube.com') || h == 'youtu.be') {
+  if (youtubeVideoId(url) != null ||
+      h.endsWith('youtube.com') ||
+      h == 'youtu.be') {
     return 'YouTube';
   }
   if (h.endsWith('tiktok.com')) return 'TikTok';
-  if (h.endsWith('facebook.com') || h == 'fb.watch' || h == 'fb.com') return 'Facebook';
+  if (h.endsWith('facebook.com') || h == 'fb.watch' || h == 'fb.com') {
+    return 'Facebook';
+  }
   if (h.endsWith('instagram.com') || h == 'instagr.am') return 'Instagram';
   if (h == 'x.com' || h.endsWith('twitter.com')) return 'X';
   if (h.endsWith('whatsapp.com')) return 'WhatsApp';

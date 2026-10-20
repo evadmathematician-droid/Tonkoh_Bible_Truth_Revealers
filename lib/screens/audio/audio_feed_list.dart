@@ -9,6 +9,7 @@ import '../../data/display_names.dart';
 import '../../data/phone_aliases.dart';
 import '../../data/feed_item.dart';
 import '../../data/sermon_audio.dart';
+import '../../links/link_preview.dart';
 import '../../links/link_preview_card.dart';
 import '../../services/share_service.dart';
 import '../../util/chat_time.dart';
@@ -361,7 +362,8 @@ class AudioFeedList extends StatelessWidget {
         if (msg.link != null) ...[
           const SizedBox(height: 8),
           LinkPreviewCard(preview: msg.link!),
-        ],
+        ] else if (extractFirstUrl(msg.text) != null)
+          AutoLinkPreview(text: msg.text),
         const SizedBox(height: 4),
         Text(
           messageClock(msg.timestamp),
