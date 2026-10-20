@@ -34,36 +34,54 @@ class ComingSoonScreen extends StatelessWidget {
   }
 }
 
-class MainNavHost extends StatelessWidget {
+class MainNavHost extends StatefulWidget {
   final String? startChatUid;
   const MainNavHost({super.key, this.startChatUid});
 
   @override
-  Widget build(BuildContext context) {
-    final router = GoRouter(
-      initialLocation: startChatUid != null && startChatUid!.isNotEmpty
-          ? '/privateChat/$startChatUid'
-          : '/audio',
-      routes: [
-        GoRoute(path: '/contact', builder: (c, s) => const ContactScreen()),
-        GoRoute(path: '/audio', builder: (c, s) => const AudioScreen()),
-        GoRoute(path: '/message', builder: (c, s) => const ComingSoonScreen('Bible Facts')),
-        GoRoute(path: '/feedback', builder: (c, s) => const FeedbackScreen()),
-        GoRoute(path: '/chatList', builder: (c, s) => const DiscussionsScreen()),
-        GoRoute(path: '/admin', builder: (c, s) => const AdminScreen()),
-        GoRoute(path: '/settings', builder: (c, s) => const SettingsScreen()),
-        GoRoute(path: '/adminApproval', builder: (c, s) => const AdminAudioApprovalScreen()),
+  State<MainNavHost> createState() => _MainNavHostState();
+}
 
-        GoRoute(
-          path: '/privateChat/:otherUid',
-          builder: (context, state) {
-            final otherUid = state.pathParameters['otherUid']!;
-            return PrivateChatScreen(otherUid: otherUid);
-          },
-        ),
-      ],
-    );
+class _MainNavHostState extends State<MainNavHost> {
+  // Created once: rebuilding the host (the auth gate re-rendering) must
+  // never reset navigation back to the first screen.
+  late final GoRouter _router = _buildRouter(widget.startChatUid);
 
-    return Router.withConfig(config: router);
+  @override
+  void dispose() {
+    _router.dispose();
+    super.dispose();
   }
+
+  @override
+  Widget build(BuildContext context) => Router.withConfig(config: _router);
+}
+
+GoRouter _buildRouter(String? startChatUid) {
+  return GoRouter(
+    initialLocation: startChatUid != null && startChatUid.isNotEmpty
+        ? '/privateChat/$startChatUid'
+        : '/audio',
+    routes: [
+      GoRoute(path: '/contact', builder: (c, s) => const ContactScreen()),
+      GoRoute(path: '/audio', builder: (c, s) => const AudioScreen()),
+      GoRoute(
+          path: '/message',
+          builder: (c, s) => const ComingSoonScreen('Bible Facts')),
+      GoRoute(path: '/feedback', builder: (c, s) => const FeedbackScreen()),
+      GoRoute(path: '/chatList', builder: (c, s) => const DiscussionsScreen()),
+      GoRoute(path: '/admin', builder: (c, s) => const AdminScreen()),
+      GoRoute(path: '/settings', builder: (c, s) => const SettingsScreen()),
+      GoRoute(
+          path: '/adminApproval',
+          builder: (c, s) => const AdminAudioApprovalScreen()),
+      GoRoute(
+        path: '/privateChat/:otherUid',
+        builder: (context, state) {
+          final otherUid = state.pathParameters['otherUid']!;
+          return PrivateChatScreen(otherUid: otherUid);
+        },
+      ),
+    ],
+  );
 }

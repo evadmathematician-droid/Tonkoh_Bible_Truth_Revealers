@@ -137,6 +137,13 @@ class LocalFeedStore {
   Future<({List<SermonAudio> sermons, List<TextMessage> texts})> loadAll() async =>
       (sermons: await _fetchSermons(), texts: await _fetchTexts());
 
+  Future<({List<SermonAudio> sermons, List<TextMessage> texts})>? _preload;
+
+  /// The first [loadAll] of this launch, shared: main() starts it before
+  /// anything else, so the feed is usually read by the time it's drawn.
+  Future<({List<SermonAudio> sermons, List<TextMessage> texts})> preload() =>
+      _preload ??= loadAll();
+
   @visibleForTesting
   Future<void> close() async {
     final db = await _opening;

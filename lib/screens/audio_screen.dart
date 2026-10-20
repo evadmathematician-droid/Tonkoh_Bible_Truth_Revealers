@@ -31,6 +31,7 @@ import '../data/feed_item.dart';
 import '../data/sermon_audio.dart';
 import '../links/link_preview.dart';
 import '../links/typed_link_preview.dart';
+import '../util/startup_trace.dart';
 
 class AudioScreen extends StatefulWidget {
   const AudioScreen({super.key});
@@ -103,6 +104,7 @@ class _AudioScreenState extends State<AudioScreen> with WidgetsBindingObserver {
     }
     _opened = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      StartupTrace.markOnce('feedContent');
       debugPrint('[FeedOpen] ${items.length} posts visible after '
           '${_openWatch.elapsedMilliseconds} ms (from the phone)');
     });

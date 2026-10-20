@@ -10,6 +10,9 @@ import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:provider/provider.dart';
 
 import 'data/display_names.dart';
+import 'data/local_feed_store.dart';
+import 'screens/auth/auth_manager.dart';
+import 'util/startup_trace.dart';
 import 'share/share_intake.dart';
 import 'navigation/auth_gate.dart';
 import 'firebase_options.dart';
@@ -26,7 +29,21 @@ import 'navigation/call_navigator.dart';
 const String oneSignalAppId = "371c8ad4-ea1c-4308-bc45-cfab712b9670";
 
 Future<void> main() async {
+  StartupTrace.mark('main');
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Read what the first screen needs from the phone right away, in
+  // parallel with Firebase start-up: the saved feed and the signed-in
+  // profile. Nothing on the way to the first frame waits for the network.
+  if (!kIsWeb) unawaited(LocalFeedStore.instance.preload());
+  final cachedProfile = AuthManager.getCachedProfile();
+
+  // Smaller image memory (default 100 MB), freed in the background, so
+  // Android is less likely to kill the app while it's not on screen.
+  PaintingBinding.instance.imageCache
+    ..maximumSizeBytes = 48 << 20
+    ..maximumSize = 300;
+  WidgetsBinding.instance.addObserver(_BackgroundMemoryTrim());
 
   if (!kIsWeb) {
     // Edge-to-edge (mandatory on Android 15+ / targetSdk 35+; this app
@@ -49,10 +66,14 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  StartupTrace.mark('firebase');
 
   // Saved-contact names from the last contact sync, so the first frame
   // already shows the right names (the sync itself starts in AuthGate).
   await DisplayNames.instance.load();
+  // The gate can open the app on its very first frame.
+  await cachedProfile;
+  StartupTrace.mark('displayNames+profile');
 
   // Media session for the audio-feed player — gives it an Android media
   // notification (title / artwork / play / pause / seek), lock-screen and
@@ -76,6 +97,7 @@ Future<void> main() async {
   } else {
     feedAudioHandler = FeedAudioHandler();
   }
+  StartupTrace.mark('audioService');
 
   if (!kIsWeb) {
     // Offline-first: keep an on-disk cache of every RTDB path the app
@@ -95,6 +117,7 @@ Future<void> main() async {
 
   // ── Call system init ──
   await CallNotifications.init();
+  StartupTrace.mark('callNotifications');
 
   CallNotifications.actionStream.listen((action) {
     switch (action.action) {
@@ -126,6 +149,9 @@ Future<void> main() async {
   unawaited(ShareIntake.instance.init());
 
   runApp(const TBTRApp());
+  StartupTrace.mark('runApp');
+  WidgetsBinding.instance
+      .addPostFrameCallback((_) => StartupTrace.markOnce('firstFrame'));
 }
 
 class TBTRApp extends StatelessWidget {
@@ -157,5 +183,17 @@ class TBTRApp extends StatelessWidget {
         home: const AuthGate(),
       ),
     );
+  }
+}
+
+/// Frees decoded images when the app goes to the background (they reload
+/// from the disk cache on return), keeping the app's memory small so
+/// Android keeps it alive longer and resuming is instant.
+class _BackgroundMemoryTrim with WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      PaintingBinding.instance.imageCache.clear();
+    }
   }
 }

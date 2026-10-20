@@ -13,6 +13,7 @@ import '../../data/sermon_audio.dart';
 import '../../data/text_message.dart';
 import '../../links/link_preview.dart';
 import '../../services/resumable_downloader.dart';
+import '../../util/startup_trace.dart';
 
 /// Where the user stopped reading the Audio screen: the post anchored at
 /// the bottom of the visible area and how far up from the bottom edge it
@@ -186,7 +187,7 @@ class AudioFeedProvider extends ChangeNotifier {
     // Render from the phone first — instant and offline.
     final cached = AuthManager.lastKnownProfile ?? await AuthManager.getCachedProfile();
     _loadPosition(prefs, cached?.uid);
-    final local = await _store.loadAll();
+    final local = await _store.preload();
     _sermons
       ..clear()
       ..addAll(local.sermons.where((s) => s.isDisplayable));
@@ -194,6 +195,7 @@ class AudioFeedProvider extends ChangeNotifier {
       ..clear()
       ..addAll(local.texts.where((m) => m.text.isNotEmpty));
     localLoaded = true;
+    StartupTrace.markOnce('feedLocalLoaded');
     notifyListeners();
     _subscribeLocalCache();
 

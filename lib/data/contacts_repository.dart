@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:firebase_database/firebase_database.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:flutter/foundation.dart' show compute, debugPrint, kIsWeb;
 import 'package:flutter_contacts/flutter_contacts.dart';
 
 import '../screens/auth/auth_manager.dart';
@@ -178,12 +178,19 @@ class ContactsRepository {
         ? kDefaultCountry
         : profile!.country.trim().toUpperCase();
     final contacts = await readDeviceContacts();
+    // Parsing hundreds of phone-book numbers is real CPU work: do it in a
+    // background isolate so the screen stays smooth (low-end phones).
+    final raws = {for (final c in contacts) ...c.numbers}.toList();
+    final normalized = raws.isEmpty
+        ? const <String, String?>{}
+        : await compute(normalizeAllPhones, (raws, country));
     final result = await matchContacts(
       contacts: contacts,
       defaultCountry: country,
       lookup: firebaseLookup,
       previous: previous,
       selfId: profile?.uid,
+      normalize: (raw) => normalized[raw],
     );
     lastStats = result.stats;
     debugPrint('[Contacts] read=${result.stats.contactsRead} '
@@ -203,6 +210,7 @@ Future<({ContactBook book, ContactSyncStats stats})> matchContacts({
   required DirectoryLookup lookup,
   ContactBook? previous,
   String? selfId,
+  String? Function(String raw)? normalize,
 }) async {
   var numbersRead = 0;
   final perContact = <List<String>>[];
@@ -212,9 +220,11 @@ Future<({ContactBook book, ContactSyncStats stats})> matchContacts({
     final keys = <String>[];
     for (final raw in c.numbers) {
       numbersRead++;
-      final e164 = normalizePhone(raw, defaultCountry: defaultCountry);
+      final e164 = normalize != null
+          ? normalize(raw)
+          : normalizePhone(raw, defaultCountry: defaultCountry);
       if (e164 == null) continue;
-      final id = resolveUserId(e164);
+      final id = PhoneAliases.instance.aliasFor(e164);
       if (!keys.contains(id)) keys.add(id);
     }
     perContact.add(keys);
@@ -271,4 +281,10 @@ Future<({ContactBook book, ContactSyncStats stats})> matchContacts({
     lastSync: DateTime.now(),
   );
   return (book: ContactBook(onApp: onApp, notOnApp: notOnApp), stats: stats);
+}
+
+/// raw phone-book number → E.164 (or null), for compute().
+Map<String, String?> normalizeAllPhones((List<String>, String) args) {
+  final (raws, country) = args;
+  return {for (final r in raws) r: normalizePhone(r, defaultCountry: country)};
 }

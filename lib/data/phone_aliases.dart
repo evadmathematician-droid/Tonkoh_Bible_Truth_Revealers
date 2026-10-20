@@ -70,6 +70,9 @@ class PhoneAliases {
   /// The current account id for [id]: the alias target if the server moved
   /// this key, otherwise the id repaired to strict E.164 (or unchanged for
   /// a non-phone legacy id).
+  /// The alias target for an id that is already strict E.164 (no parsing).
+  String aliasFor(String e164) => _aliases[e164] ?? e164;
+
   String resolve(String id) {
     final t = id.trim();
     if (t.isEmpty) return t;

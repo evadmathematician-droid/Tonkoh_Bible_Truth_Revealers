@@ -22,7 +22,7 @@ import 'force_update_screen.dart';
 class ForceUpdateGate extends StatefulWidget {
   const ForceUpdateGate({super.key, required this.logo, required this.child});
 
-  /// Shown on the blocking screen and while the first check runs.
+  /// Shown on the blocking screen.
   final Widget logo;
   final Widget child;
 
@@ -65,8 +65,10 @@ class _ForceUpdateGateState extends State<ForceUpdateGate>
     return ValueListenableBuilder<ForceUpdateStatus?>(
       valueListenable: _manager.status,
       builder: (context, status, _) {
-        if (status == null) return _CheckingScreen(logo: widget.logo);
-        if (!status.isBlocked) return widget.child;
+        // Until the first decision (a few ms, from the saved policy) the
+        // app is shown, not a logo + spinner: a blocked version is still
+        // covered the moment the decision arrives.
+        if (status == null || !status.isBlocked) return widget.child;
 
         // A dedicated Navigator gives the screen a route, which PopScope
         // needs in order to block back (including predictive back).
@@ -80,33 +82,6 @@ class _ForceUpdateGateState extends State<ForceUpdateGate>
           onDidRemovePage: (_) {},
         );
       },
-    );
-  }
-}
-
-/// Shown once at launch, until the first check finishes.
-class _CheckingScreen extends StatelessWidget {
-  const _CheckingScreen({required this.logo});
-
-  final Widget logo;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(width: 96, height: 96, child: logo),
-            const SizedBox(height: 32),
-            const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2.5),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

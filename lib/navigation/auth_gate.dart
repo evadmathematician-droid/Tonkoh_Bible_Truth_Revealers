@@ -4,6 +4,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
 import '../data/account_self_repair.dart';
+import '../util/startup_trace.dart';
 import '../data/chat_sync_service.dart';
 import '../data/contact_sync_service.dart';
 import '../data/phone_aliases.dart';
@@ -39,7 +40,24 @@ class _AuthGateState extends State<AuthGate> {
   @override
   void initState() {
     super.initState();
+    // main() already read the cached profile: signed-in users get the app
+    // on the very first frame — no spinner, no network wait.
+    final known = AuthManager.lastKnownProfile;
+    if (known != null) {
+      _status = _GateStatus.ready;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _setReady(known.uid);
+      });
+    }
     _bootstrap();
+  }
+
+  /// Background work that isn't needed for the first screen starts a
+  /// moment after it is drawn, so it never competes with showing content
+  /// (matters most on low-memory phones).
+  static void _afterFirstContent(Duration delay, void Function() work) {
+    WidgetsBinding.instance.addPostFrameCallback(
+        (_) => Future<void>.delayed(delay, work));
   }
 
   Future<void> _bootstrap() async {
@@ -47,7 +65,8 @@ class _AuthGateState extends State<AuthGate> {
     // here it's the first await instead of a `remember` initializer).
     final cached = await AuthManager.getCachedProfile();
     if (cached != null) {
-      _setReady(cached.uid);
+      // (Usually already opened from initState.)
+      if (_uid != cached.uid) _setReady(cached.uid);
     } else if (mounted) {
       // No account on this phone: show registration right away instead of
       // a spinner while anonymous sign-in waits for the network (it
@@ -61,14 +80,16 @@ class _AuthGateState extends State<AuthGate> {
         // If the cache already resolved us to Ready above, don't
         // second-guess it — same guard as the Kotlin version.
         if (_status == _GateStatus.ready) {
-          unawaited(ContactSyncService.instance.start());
+          _afterFirstContent(const Duration(seconds: 3),
+              () => unawaited(ContactSyncService.instance.start()));
           return;
         }
         final cached2 = await AuthManager.getCachedProfile();
         if (!mounted) return;
         if (cached2 != null) {
           _setReady(cached2.uid);
-          unawaited(ContactSyncService.instance.start());
+          _afterFirstContent(const Duration(seconds: 3),
+              () => unawaited(ContactSyncService.instance.start()));
         } else {
           setState(() => _status = _GateStatus.needsProfile);
         }
@@ -81,11 +102,11 @@ class _AuthGateState extends State<AuthGate> {
     // then again if the background refresh brings a new one. Nothing here
     // is awaited by the UI, so a slow or missing connection never delays
     // a screen.
-    unawaited(() async {
+    _afterFirstContent(const Duration(seconds: 4), () async {
       await PhoneAliases.instance.loadCached();
       await _repairAccountId();
       if (await PhoneAliases.instance.refresh()) await _repairAccountId();
-    }());
+    });
   }
 
   /// Re-points this device at its corrected account id, if it has one.
@@ -101,12 +122,15 @@ class _AuthGateState extends State<AuthGate> {
     final alreadyReadyForThisUser =
         _uid == uid && _status == _GateStatus.ready;
     _uid = uid;
+    StartupTrace.markOnce('authGateReady');
     setState(() => _status = _GateStatus.ready);
     _watchProfileExistence(uid);
     // Local-first chats: saved avatars into memory, and new messages saved
     // to the phone in the background before any chat is opened.
-    unawaited(ProfilePhotoCache.instance.warmUp());
-    unawaited(ChatSyncService.instance.start(uid));
+    _afterFirstContent(const Duration(milliseconds: 600),
+        () => unawaited(ProfilePhotoCache.instance.warmUp()));
+    _afterFirstContent(const Duration(milliseconds: 1500),
+        () => unawaited(ChatSyncService.instance.start(uid)));
     // A Settings edit saved offline goes out when the connection returns.
     ProfileSettingsRepository.instance.startAutoSync();
     // Anything shared in from another app while signed out can open now.
