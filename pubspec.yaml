@@ -26,6 +26,8 @@ dependencies:
   audio_service: ^0.18.15
   video_player: ^2.9.5
   cached_network_image: ^3.4.1
+  # putFile: a photo I send shows from the copy on this phone, not a re-download.
+  flutter_cache_manager: ^3.4.1
   image_picker: ^1.1.2
   record: ^7.1.2
 

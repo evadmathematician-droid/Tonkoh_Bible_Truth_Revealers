@@ -4,6 +4,13 @@
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.READ_CONTACTS"/>
+    <!-- Picking files on Android 12 and older. Android 13+ needs no media
+         permission here: the system photo picker and document picker grant
+         access to just what the user picks (READ_MEDIA_IMAGES/VIDEO would
+         also need a Play Console justification). -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
     <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
@@ -113,6 +120,12 @@
                 <data android:mimeType="audio/*"/>
             </intent-filter>
         </activity>
+
+        <!-- Crop & rotate on the chat media preview (image_cropper). -->
+        <activity
+            android:name="com.yalantis.ucrop.UCropActivity"
+            android:exported="false"
+            android:theme="@style/UCropTheme" />
 
         <activity
             android:name=".calls.IncomingCallActivity"

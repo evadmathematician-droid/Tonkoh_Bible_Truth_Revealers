@@ -12,6 +12,14 @@ class MessageStatus {
 
   /// The recipient's phone saved it (it removed the relay copy).
   static const int delivered = 2;
+
+  /// A photo / video still being prepared and uploaded from this phone;
+  /// `fileUrl` is a local file path until it's done. Never sent to
+  /// Firebase as-is (the outbox only sends [pending]).
+  static const int uploading = -2;
+
+  /// The upload above failed or timed out — "Tap to retry".
+  static const int failed = -1;
 }
 
 /// Mirrors the Kotlin `PrivateMessage` data class used for both the

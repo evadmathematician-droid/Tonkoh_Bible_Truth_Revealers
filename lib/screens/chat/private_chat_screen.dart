@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl_phone_field/countries.dart';
 import 'package:pasteboard/pasteboard.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../auth/auth_manager.dart';
@@ -33,7 +34,10 @@ import '../../links/typed_link_preview.dart';
 import '../components/full_screen_profile_photo.dart';
 import '../../util/chat_time.dart';
 import '../../widgets/presence_label.dart';
+import '../../chat_media/chat_media_sender.dart';
 import 'chat_helpers.dart';
+import 'image_grouping.dart';
+import 'media_preview_screen.dart';
 import 'message_bubbles.dart' hide VoiceMessageBubble;
 import '../../services/voice_message_bubble.dart';
 import '../chat/private_chat_input.dart';
@@ -82,6 +86,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   /// Loaded window of the conversation, oldest first. Starts as the newest
   /// [LocalChatStore.pageSize] messages; scrolling up prepends older pages.
   final List<PrivateMessage> _messages = [];
+  ImageGroups _groups = ImageGroups.of(const []);
   bool _hasOlder = true;
   bool _loadingOlder = false;
   // The list is reversed (index 0 = newest at the bottom), so it opens on
@@ -710,26 +715,124 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     _clearSelection();
   }
 
+  /// Photos & videos: Gallery (up to [chatMaxMediaPerSend]) or Camera, then
+  /// the preview screen. Picking never sends — only Send on the preview.
   Future<void> _pickImageVideo() async {
     setState(() => _showAttachMenu = false);
+    if (kIsWeb) return _pickImageVideoWeb();
+
+    final source = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Gallery'),
+              subtitle: Text('Up to $chatMaxMediaPerSend photos or videos'),
+              onTap: () => Navigator.pop(ctx, 'gallery'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Camera'),
+              onTap: () => Navigator.pop(ctx, 'camera'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+
+    final List<String> paths;
     try {
-      final XFile? file = await ImagePicker().pickMedia();
-      if (file == null) return;
-      if (kIsWeb) {
-        await _uploadAttachment(
-            bytes: await file.readAsBytes(),
-            fileName: file.name,
-            providedMime: file.mimeType);
+      final picker = ImagePicker();
+      if (source == 'camera') {
+        final status = await Permission.camera.request();
+        if (!status.isGranted) {
+          _snack(status.isPermanentlyDenied
+              ? 'Camera is turned off for TBTR — allow it in Settings → Apps → TBTR → Permissions.'
+              : 'TBTR needs the camera to take a photo.');
+          return;
+        }
+        final shot = await picker.pickImage(source: ImageSource.camera);
+        if (shot == null) return;
+        paths = [shot.path];
       } else {
-        // Hand the picker's cache-file path straight through — never read a
-        // (potentially huge) video into memory here.
-        await _uploadAttachment(
-            filePath: file.path,
-            fileName: file.name,
-            providedMime: file.mimeType);
+        final picked =
+            await picker.pickMultipleMedia(limit: chatMaxMediaPerSend);
+        if (picked.isEmpty) return;
+        if (picked.length > chatMaxMediaPerSend) {
+          _snack('You can send up to $chatMaxMediaPerSend at a time — '
+              'the first $chatMaxMediaPerSend were added.');
+        }
+        paths = picked.take(chatMaxMediaPerSend).map((f) => f.path).toList();
       }
     } catch (e) {
       debugPrint('_pickImageVideo failed: $e');
+      _snack("Couldn't open your ${source == 'camera' ? 'camera' : 'gallery'} — try again.");
+      return;
+    }
+    if (!mounted) return;
+
+    final items = await Navigator.of(context).push<List<OutgoingMedia>>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => MediaPreviewScreen(paths: paths, recipient: _otherUserName),
+      ),
+    );
+    if (items == null || items.isEmpty || !mounted) return;
+    await _sendMedia(items);
+  }
+
+  /// Shows [items] in the chat at once and uploads them in the background
+  /// (ChatMediaSender).
+  Future<void> _sendMedia(List<OutgoingMedia> items) async {
+    final uid = _currentUid;
+    final cid = _chatId;
+    if (uid == null || cid == null) {
+      _snack('Chat not ready yet — try again in a moment.');
+      return;
+    }
+    final reply = _replyingTo;
+    setState(() => _replyingTo = null);
+    _scrollToBottomIfNeeded();
+    unawaited(ChatMediaSender.instance.sendAll(
+      chatId: cid,
+      otherUid: _otherUid,
+      newId: () => _newMessageId(cid),
+      items: items,
+      template: PrivateMessage(
+        id: '',
+        timestamp: 0,
+        senderId: uid,
+        senderName: _currentSenderName,
+        senderPhone: _currentSenderPhone,
+        replyToId: reply?.id ?? '',
+        replyToText: reply != null ? previewLabelFor(reply) : '',
+        replyToSenderName: reply?.senderName ?? '',
+      ),
+    ));
+  }
+
+  void _retryMedia(String messageId) {
+    final cid = _chatId;
+    if (cid == null) return;
+    unawaited(ChatMediaSender.instance.retry(cid, _otherUid, messageId));
+  }
+
+  /// Web: one photo/video, uploaded as before (no file paths in a browser).
+  Future<void> _pickImageVideoWeb() async {
+    try {
+      final XFile? file = await ImagePicker().pickMedia();
+      if (file == null) return;
+      await _uploadAttachment(
+          bytes: await file.readAsBytes(),
+          fileName: file.name,
+          providedMime: file.mimeType);
+    } catch (e) {
+      debugPrint('_pickImageVideoWeb failed: $e');
       _snack("Couldn't attach that — try again.");
     }
   }
@@ -955,16 +1058,32 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   }
 
   Widget _buildMessageRow(BuildContext context, int index) {
+    // Part of a photo group: drawn in the group's bubble instead.
+    if (_groups.hidden.contains(index)) return const SizedBox.shrink();
     final message = _messages[index];
+    final group = _groups.leads[index];
+    final groupMessages =
+        group == null ? null : [for (final i in group) _messages[i]];
+    final rowIds = groupMessages?.map((m) => m.id).toList() ?? [message.id];
+    final firstIndex = group?.first ?? index;
     final isMine = message.senderId == _currentUid;
-    final selected = _selectedIds.contains(message.id);
+    final selected = rowIds.every(_selectedIds.contains);
     final palette = ChatTheme.of(context);
+    // The reply quote travels on the first photo of a group.
+    final quoted = groupMessages?.first ?? message;
+    final rowStatus = groupMessages == null
+        ? message.status
+        : ImageGroups.statusOf(groupMessages);
 
-    final showDivider = index == 0 ||
+    final showDivider = firstIndex == 0 ||
         !isSameDay(
-          DateTime.fromMillisecondsSinceEpoch(_messages[index - 1].timestamp),
-          DateTime.fromMillisecondsSinceEpoch(message.timestamp),
+          DateTime.fromMillisecondsSinceEpoch(
+              _messages[firstIndex - 1].timestamp),
+          DateTime.fromMillisecondsSinceEpoch(_messages[firstIndex].timestamp),
         );
+
+    final uploadState = message.status == MessageStatus.uploading ||
+        message.status == MessageStatus.failed;
 
     Widget content;
     switch (message.type) {
@@ -981,15 +1100,58 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         );
         break;
       case 'image':
-        content = ImageMessageBubble(fileUrl: message.fileUrl);
+        content = groupMessages != null
+            ? ImageGroupBubble(messages: groupMessages, onRetry: _retryMedia)
+            : ImageMessageBubble(
+                fileUrl: message.fileUrl,
+                messageId: message.id,
+                status: message.status,
+                caption: message.text,
+                captionColor: palette.text(isMine),
+                onRetry: () => _retryMedia(message.id),
+              );
         break;
       case 'video':
-        content = VideoMessageBubble(
-          messageId: message.id,
-          fileUrl: message.fileUrl,
-          mimeType: message.mimeType,
-          isMine: isMine,
-        );
+        final video = uploadState
+            // Still on this phone: a placeholder with the progress / retry.
+            ? ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  width: 240,
+                  height: 170,
+                  child: ChatMediaTile(
+                    messageId: message.id,
+                    source: message.fileUrl,
+                    status: message.status,
+                    isVideo: true,
+                    onRetry: () => _retryMedia(message.id),
+                  ),
+                ),
+              )
+            : VideoMessageBubble(
+                messageId: message.id,
+                fileUrl: message.fileUrl,
+                mimeType: message.mimeType,
+                isMine: isMine,
+              );
+        content = message.text.trim().isEmpty
+            ? video
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  video,
+                  const SizedBox(height: 6),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 240),
+                    child: Text(message.text,
+                        style: TextStyle(
+                            color: palette.text(isMine),
+                            fontSize: 15,
+                            height: 1.3)),
+                  ),
+                ],
+              );
         break;
       case 'audio':
         content = AudioAttachmentBubble(
@@ -1086,7 +1248,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
         if (isMine) ...[
           const SizedBox(width: 4),
           MessageStatusTick(
-            status: message.status,
+            status: rowStatus,
             isRead: _otherUserLastReadTimestamp >= message.timestamp,
             color: message.type == 'sticker'
                 ? palette.chipText
@@ -1099,16 +1261,25 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
       ],
     );
 
+    // A photo group selects (and deletes / shares) as a whole.
+    void toggleRow() => setState(() {
+          if (selected) {
+            _selectedIds.removeAll(rowIds);
+          } else {
+            _selectedIds.addAll(rowIds);
+          }
+        });
+
     final bubble = GestureDetector(
       onLongPressStart: (details) {
-        if (_selectionMode) {
-          _toggleSelected(message.id);
+        if (_selectionMode || groupMessages != null) {
+          toggleRow();
         } else {
           _showMessageActions(message, details.globalPosition);
         }
       },
       onTap: () {
-        if (_selectionMode) _toggleSelected(message.id);
+        if (_selectionMode) toggleRow();
       },
       child: Container(
         color: selected
@@ -1193,9 +1364,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             ReplyQuotePreview(
-                                message: message,
+                                message: quoted,
                                 isMine: isMine,
-                                senderLabel: _replySenderLabel(message)),
+                                senderLabel: _replySenderLabel(quoted)),
                             content,
                             const SizedBox(height: 3),
                             Align(
@@ -1426,6 +1597,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
   Widget build(BuildContext context) {
     // Rebuild when a contact sync renames the other person.
     context.watch<DisplayNames>();
+    // Photos sent together draw as one grid (every _messages change is a
+    // setState, so this is always current).
+    _groups = ImageGroups.of(_messages);
     // "Morning Lilac" — follows the phone's light/dark setting.
     final palette =
         ChatPalette.forBrightness(MediaQuery.platformBrightnessOf(context));

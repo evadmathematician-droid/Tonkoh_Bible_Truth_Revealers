@@ -348,6 +348,49 @@ class LocalChatStore {
     if (n > 0) _markDirty(chatId);
   }
 
+  /// Photo/video uploads that were running when the app last stopped can't
+  /// still be running: show them as failed ("Tap to retry"), never as an
+  /// endless spinner.
+  Future<void> failStaleUploads() async {
+    if (_inMemory) {
+      for (final e in _memStore.entries) {
+        final list = e.value;
+        for (var i = 0; i < list.length; i++) {
+          if (list[i].status == MessageStatus.uploading) {
+            list[i] = list[i].copyWith(status: MessageStatus.failed);
+            _markDirty(e.key);
+          }
+        }
+      }
+      return;
+    }
+    final db = await _database;
+    final rows = await db.query('messages',
+        columns: ['chatId'],
+        where: 'status = ?',
+        whereArgs: [MessageStatus.uploading]);
+    if (rows.isEmpty) return;
+    await db.update('messages', {'status': MessageStatus.failed},
+        where: 'status = ?', whereArgs: [MessageStatus.uploading]);
+    for (final chatId in rows.map((r) => r['chatId'] as String).toSet()) {
+      _markDirty(chatId);
+    }
+  }
+
+  /// One message, or null.
+  Future<PrivateMessage?> byId(String chatId, String messageId) async {
+    if (_inMemory) {
+      for (final m in _memStore[chatId] ?? const <PrivateMessage>[]) {
+        if (m.id == messageId) return m;
+      }
+      return null;
+    }
+    final db = await _database;
+    final rows = await db.query('messages',
+        where: 'id = ? AND chatId = ?', whereArgs: [messageId, chatId], limit: 1);
+    return rows.isEmpty ? null : PrivateMessage.fromDbMap(rows.first);
+  }
+
   /// Deletes one message from this device only ("delete for me"). Does
   /// not touch Firebase — the relay node is already gone for delivered
   /// messages, and other participants keep their own local copies.

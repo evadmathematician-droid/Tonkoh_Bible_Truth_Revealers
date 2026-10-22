@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 
+import '../chat_media/chat_media_sender.dart';
 import '../screens/auth/auth_manager.dart';
 import '../screens/chat/chat_helpers.dart' show previewLabelFor;
 import '../screens/chat/private_chat_push.dart';
@@ -49,6 +50,10 @@ class ChatSyncService {
     if (_me == myUid) return;
     await stop();
     _me = myUid;
+
+    // Photo/video uploads the last app session didn't finish → "Tap to
+    // retry" (they can't still be running).
+    await ChatMediaSender.instance.recoverAfterRestart();
 
     // Keep the chat list current in Firebase's disk cache even between
     // listeners, so it is already fresh when the app comes back.
