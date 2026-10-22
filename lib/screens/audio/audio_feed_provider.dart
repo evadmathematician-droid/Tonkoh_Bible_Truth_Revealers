@@ -155,14 +155,7 @@ class AudioFeedProvider extends ChangeNotifier {
   FeedPosition? savedPosition;
   bool _positionLoaded = false;
 
-  // ---------- Connection (app-bar indicator) ----------
-  bool online = true;
-  bool updating = false;
-  bool _connectionKnown = false;
-  Timer? _updatingTimer;
-
   StreamSubscription? _userChatsSub;
-  StreamSubscription? _connectedSub;
   final List<StreamSubscription> _feedSubs = [];
   StreamSubscription? _localSermonsSub;
   StreamSubscription? _localTextsSub;
@@ -214,7 +207,6 @@ class AudioFeedProvider extends ChangeNotifier {
       onError: (msg) => debugPrint('AudioFeedProvider: ensureSignedIn failed: $msg'),
     );
 
-    _watchConnection();
     await _startSync();
   }
 
@@ -249,29 +241,6 @@ class AudioFeedProvider extends ChangeNotifier {
     });
   }
 
-  void _watchConnection() {
-    _connectedSub ??= FirebaseDatabase.instance
-        .ref('.info/connected')
-        .onValue
-        .listen((e) {
-      final now = e.snapshot.value == true;
-      if (_connectionKnown && now == online) return;
-      _connectionKnown = true;
-      online = now;
-      if (now) {
-        // Brief "Updating…" while the listeners catch up after connecting.
-        updating = true;
-        _updatingTimer?.cancel();
-        _updatingTimer = Timer(const Duration(seconds: 3), () {
-          updating = false;
-          notifyListeners();
-        });
-      } else {
-        updating = false;
-      }
-      notifyListeners();
-    });
-  }
 
   /// Live view of the local store — what the UI reads.
   void _subscribeLocalCache() {
@@ -448,8 +417,6 @@ class AudioFeedProvider extends ChangeNotifier {
   @override
   void dispose() {
     _userChatsSub?.cancel();
-    _connectedSub?.cancel();
-    _updatingTimer?.cancel();
     _flushTimer?.cancel();
     for (final s in _feedSubs) {
       s.cancel();

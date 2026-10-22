@@ -50,6 +50,16 @@ class ChatSyncService {
     await stop();
     _me = myUid;
 
+    // Keep the chat list current in Firebase's disk cache even between
+    // listeners, so it is already fresh when the app comes back.
+    if (!kIsWeb) {
+      try {
+        await _db.ref('userChats/$myUid').keepSynced(true);
+      } catch (e) {
+        debugPrint('ChatSync: keepSynced unavailable: $e');
+      }
+    }
+
     _chatsSub = _db.ref('userChats/$myUid').onValue.listen((event) {
       final data = event.snapshot.value;
       final list = <ChatSummary>[];

@@ -12,7 +12,9 @@ import 'package:provider/provider.dart';
 import 'data/display_names.dart';
 import 'data/local_feed_store.dart';
 import 'screens/auth/auth_manager.dart';
+import 'util/connection_status.dart';
 import 'util/startup_trace.dart';
+import 'widgets/offline_banner.dart';
 import 'share/share_intake.dart';
 import 'navigation/auth_gate.dart';
 import 'firebase_options.dart';
@@ -150,8 +152,12 @@ Future<void> main() async {
 
   runApp(const TBTRApp());
   StartupTrace.mark('runApp');
-  WidgetsBinding.instance
-      .addPostFrameCallback((_) => StartupTrace.markOnce('firstFrame'));
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    StartupTrace.markOnce('firstFrame');
+    // Only a real outage shows the offline strip; checked after the first
+    // frame so it never delays it.
+    ConnectionStatus.instance.start();
+  });
 }
 
 class TBTRApp extends StatelessWidget {
@@ -178,7 +184,7 @@ class TBTRApp extends StatelessWidget {
         // screen — including call screens pushed from notifications.
         builder: (context, child) => ForceUpdateGate(
           logo: Image.asset('assets/icon/icon.png'),
-          child: child!,
+          child: OfflineBanner(child: child!),
         ),
         home: const AuthGate(),
       ),

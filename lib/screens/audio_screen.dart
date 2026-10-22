@@ -543,11 +543,8 @@ class _AudioScreenState extends State<AudioScreen> with WidgetsBindingObserver {
                     ),
                   ),
                 ),
-                // Never blocks the screen — just says what the feed is doing.
-                if (!feed.online)
-                  const _SyncChip(label: 'Offline', icon: Icons.cloud_off)
-                else if (feed.updating)
-                  const _SyncChip(label: 'Updating…', icon: Icons.sync),
+                // No connection chip here: a real outage shows the app-wide
+                // OfflineBanner instead of flashing on every start.
                 const SizedBox(width: 8),
               ],
             ),
@@ -653,28 +650,5 @@ class _AudioScreenState extends State<AudioScreen> with WidgetsBindingObserver {
     _itemPositions.itemPositions.removeListener(_onPositions);
     _messageController.dispose();
     super.dispose();
-  }
-}
-
-class _SyncChip extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  const _SyncChip({required this.label, required this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: const Color(0x1A102A72),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 12, color: const Color(0xFF102A72)),
-        const SizedBox(width: 4),
-        Text(label,
-            style: const TextStyle(fontSize: 11, color: Color(0xFF102A72))),
-      ]),
-    );
   }
 }
