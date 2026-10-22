@@ -140,12 +140,18 @@ class ForceUpdateStatus {
     required this.policy,
     required this.installedVersionName,
     required this.installedVersionCode,
+    this.playVersionCode,
   });
 
   final ForceUpdateDecision decision;
   final ForceUpdatePolicy policy;
   final String installedVersionName;
   final int? installedVersionCode;
+
+  /// The newer version code Google Play offers this install, when Play's
+  /// own check found one (Play installs only). Non-null blocks the app
+  /// even if Remote Config doesn't.
+  final int? playVersionCode;
 
   bool get isBlocked => decision != ForceUpdateDecision.allowed;
 }
@@ -158,8 +164,15 @@ class ForceUpdateStatus {
 /// device is offline — so an outdated install stays blocked offline, and a
 /// version the last fetch confirmed as supported stays usable offline.
 ///
-/// Admins change the policy only in the Firebase Console; the app holds no
-/// credentials that can change it.
+/// Independently of Remote Config, every check also asks Google Play
+/// whether a newer build of this app is available (Play installs only).
+/// If so the full-screen IMMEDIATE Play update starts at once, and the app
+/// stays blocked behind [ForceUpdateScreen] until it is installed — so a
+/// release reaches users as soon as Play rolls it out, with no console
+/// change needed.
+///
+/// Admins change the policy only in the Firebase Console (or with
+/// `tool/release.ps1`); the app holds no credentials that can change it.
 ///
 /// Requires Firebase to be initialised before [check] is first called.
 class ForceUpdateManager {
@@ -194,6 +207,11 @@ class ForceUpdateManager {
   bool _remoteConfigReady = false;
   StreamSubscription<RemoteConfigUpdate>? _realtimeSub;
 
+  /// Version code Google Play offers (null: none / not a Play install).
+  int? _playVersionCode;
+  bool _playFlowRunning = false;
+  DateTime? _playFlowEndedAt;
+
   /// Re-evaluates the installed version against the policy. Overlapping
   /// calls share a single check.
   Future<void> check() =>
@@ -222,6 +240,9 @@ class ForceUpdateManager {
       _publish(ForceUpdatePolicy.fromPrefs(prefs));
     }
 
+    // Play's check runs alongside the Remote Config fetch; neither waits
+    // for the other.
+    final play = _checkPlay();
     final fresh = await _fetchRemote();
     if (fresh != null) {
       await fresh.saveTo(prefs);
@@ -230,17 +251,68 @@ class ForceUpdateManager {
       _policy = ForceUpdatePolicy.fromPrefs(prefs);
     }
     _publish(_policy);
+    await play;
   }
 
   void _publish(ForceUpdatePolicy policy) {
     _policy = policy;
     final code = int.tryParse(_packageInfo!.buildNumber);
+    var decision = policy.evaluate(code);
+    if (decision == ForceUpdateDecision.allowed && _playVersionCode != null) {
+      decision = ForceUpdateDecision.updateRequired;
+    }
     status.value = ForceUpdateStatus(
-      decision: policy.evaluate(code),
+      decision: decision,
       policy: policy,
       installedVersionName: _packageInfo!.version,
       installedVersionCode: code,
+      playVersionCode: _playVersionCode,
     );
+  }
+
+  bool get _installedFromPlay =>
+      defaultTargetPlatform == TargetPlatform.android &&
+      _packageInfo?.installerStore == _playStoreInstaller;
+
+  /// Asks Google Play whether a newer build is available and, if so, blocks
+  /// the app and starts the full-screen update. Never throws: Play's API
+  /// fails on debug, sideloaded and emulator builds, which simply aren't
+  /// blocked by this check.
+  Future<void> _checkPlay() async {
+    if (!_installedFromPlay || _playFlowRunning) return;
+    AppUpdateInfo info;
+    try {
+      info = await InAppUpdate.checkForUpdate()
+          .timeout(fetchTimeout + const Duration(seconds: 2));
+    } catch (e) {
+      debugPrint('ForceUpdateManager: Play update check skipped ($e)');
+      return;
+    }
+
+    final inProgress = info.updateAvailability ==
+        UpdateAvailability.developerTriggeredUpdateInProgress;
+    final available =
+        info.updateAvailability == UpdateAvailability.updateAvailable &&
+            info.immediateUpdateAllowed;
+    final installed = int.tryParse(_packageInfo!.buildNumber) ?? 0;
+    final offered = info.availableVersionCode;
+    final newer =
+        inProgress || (available && (offered == null || offered > installed));
+
+    final was = _playVersionCode;
+    _playVersionCode = newer ? (offered ?? installed + 1) : null;
+    if (was != _playVersionCode) _publish(_policy);
+    if (!newer) return;
+
+    // Backing out of Play's screen resumes the app, which runs another
+    // check: don't throw the user straight back into Play. The blocking
+    // screen's "Update Now" starts it again.
+    final ended = _playFlowEndedAt;
+    if (ended != null &&
+        DateTime.now().difference(ended) < const Duration(seconds: 20)) {
+      return;
+    }
+    await _runPlayImmediateUpdate(info);
   }
 
   /// Returns the server policy, or null when the device has no usable
@@ -293,15 +365,16 @@ class ForceUpdateManager {
   /// decided by the next [check] (the gate runs one when the app resumes).
   Future<bool> startUpdate() async {
     _packageInfo ??= await PackageInfo.fromPlatform();
-    final playUrl = _policy.playStoreUrl;
+    final playUrl = _policy.playStoreUrl.isNotEmpty
+        ? _policy.playStoreUrl
+        : 'https://play.google.com/store/apps/details?id=${_packageInfo!.packageName}';
     final apkUrl = _policy.apkUrl;
 
     if (defaultTargetPlatform != TargetPlatform.android) {
       return _openUrl(playUrl);
     }
 
-    final fromPlay = _packageInfo!.installerStore == _playStoreInstaller;
-    if (fromPlay) {
+    if (_installedFromPlay) {
       if (await _runPlayImmediateUpdate()) return true;
       // Failed, cancelled or not offered by Play yet: send the user to the
       // store listing instead.
@@ -314,9 +387,11 @@ class ForceUpdateManager {
   /// Runs Google Play's full-screen IMMEDIATE in-app update. Returns true
   /// only if Play reports success (Play then restarts the app, so this
   /// rarely returns at all).
-  Future<bool> _runPlayImmediateUpdate() async {
+  Future<bool> _runPlayImmediateUpdate([AppUpdateInfo? known]) async {
+    if (_playFlowRunning) return true;
+    _playFlowRunning = true;
     try {
-      final info = await InAppUpdate.checkForUpdate();
+      final info = known ?? await InAppUpdate.checkForUpdate();
       final resumable = info.updateAvailability ==
           UpdateAvailability.developerTriggeredUpdateInProgress;
       final available =
@@ -329,6 +404,9 @@ class ForceUpdateManager {
     } catch (e) {
       debugPrint('ForceUpdateManager: in-app update unavailable: $e');
       return false;
+    } finally {
+      _playFlowRunning = false;
+      _playFlowEndedAt = DateTime.now();
     }
   }
 

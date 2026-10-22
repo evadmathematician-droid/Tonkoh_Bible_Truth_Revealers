@@ -29,6 +29,14 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
   bool get _maintenance =>
       widget.status.decision == ForceUpdateDecision.maintenance;
 
+  /// Remote Config's minimum, or the build Google Play offers when that is
+  /// what blocks this install.
+  static int _requiredCode(ForceUpdateStatus status) {
+    final min = status.policy.minVersionCode;
+    final play = status.playVersionCode ?? 0;
+    return play > min ? play : min;
+  }
+
   Future<void> _onPressed() async {
     setState(() {
       _busy = true;
@@ -102,7 +110,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
                       const SizedBox(height: 4),
                       _VersionRow(
                         label: 'Required version',
-                        value: '${policy.minVersionCode} or newer',
+                        value: '${_requiredCode(status)} or newer',
                       ),
                     ],
                     const SizedBox(height: 32),
