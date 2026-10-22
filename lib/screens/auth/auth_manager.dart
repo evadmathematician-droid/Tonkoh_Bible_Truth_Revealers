@@ -14,6 +14,7 @@ import '../../config/worker_api.dart';
 import '../../data/profile_photo_cache.dart';
 import '../../data/user_profile.dart';
 import '../../util/phone_utils.dart';
+import 'presence_manager.dart';
 
 /// Equivalent of AuthManager.kt (Kotlin `object` → Dart class with static
 /// members, since this is a stateless singleton service, not a widget's
@@ -399,6 +400,8 @@ class AuthManager {
     void Function(String message) onError = _noopError,
   }) async {
     try {
+      // While the account still exists (the presence rules check it).
+      await PresenceManager.stop();
       await _usersRef.child(phoneKey).remove();
       final authUid = _auth.currentUser?.uid;
       if (authUid != null) {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../data/app_contact.dart';
 import '../../util/phone_utils.dart';
+import '../../widgets/presence_label.dart';
 import 'profile_avatar.dart';
 
 class ContactRow extends StatelessWidget {
@@ -27,7 +28,10 @@ class ContactRow extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
-              CachedProfileAvatar(uid: contact.uid, name: contact.name, size: 44, onTap: onAvatarTap),
+              PresenceDot(
+                uid: contact.uid,
+                child: CachedProfileAvatar(uid: contact.uid, name: contact.name, size: 44, onTap: onAvatarTap),
+              ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -35,6 +39,7 @@ class ContactRow extends StatelessWidget {
                   children: [
                     Text(contact.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
                     Text(formatPhoneForDisplay(contact.phone), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    PresenceLabel(uid: contact.uid),
                   ],
                 ),
               ),

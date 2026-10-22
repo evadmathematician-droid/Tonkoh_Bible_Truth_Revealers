@@ -32,6 +32,7 @@ import '../../links/link_preview_card.dart';
 import '../../links/typed_link_preview.dart';
 import '../components/full_screen_profile_photo.dart';
 import '../../util/chat_time.dart';
+import '../../widgets/presence_label.dart';
 import 'chat_helpers.dart';
 import 'message_bubbles.dart' hide VoiceMessageBubble;
 import '../../services/voice_message_bubble.dart';
@@ -939,22 +940,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> {
     await _sendLocalFirst(cid, message, preview: '🩹 Sticker');
   }
 
-  String _formatLastSeen(int millis) {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final diff = now - millis;
-    const oneDay = 24 * 60 * 60 * 1000;
-    if (diff < oneDay) {
-      final d = DateTime.fromMillisecondsSinceEpoch(millis);
-      final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
-      final m = d.minute.toString().padLeft(2, '0');
-      final ampm = d.hour >= 12 ? 'PM' : 'AM';
-      return 'today at $h:$m $ampm';
-    } else if (diff < 2 * oneDay) {
-      return 'yesterday';
-    }
-    final d = DateTime.fromMillisecondsSinceEpoch(millis);
-    return '${d.month}/${d.day}';
-  }
+  String _formatLastSeen(int millis) => formatLastSeen(millis);
 
   @override
   void dispose() {

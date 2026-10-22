@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
-import com.google.firebase.database.FirebaseDatabase
+import com.tbtrapp.platform.AppDatabase
 
 /**
  * Handles the "Decline" action on the full-screen incoming-call notification
@@ -24,6 +24,7 @@ class CallDeclineReceiver : BroadcastReceiver() {
         if (intent.action != ACTION_DECLINE) return
         val callId = intent.getStringExtra("callId").orEmpty()
 
+        IncomingRingService.stop()
         NotificationManagerCompat.from(context)
             .cancel(CallNotificationServiceExtension.INCOMING_CALL_NOTIF_ID)
 
@@ -31,7 +32,7 @@ class CallDeclineReceiver : BroadcastReceiver() {
 
         val pending = goAsync()
         try {
-            FirebaseDatabase.getInstance()
+            AppDatabase.get()
                 .getReference("calls")
                 .child(callId)
                 .child("state")

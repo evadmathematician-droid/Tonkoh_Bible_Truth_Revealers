@@ -93,3 +93,77 @@ the code before any change was made.
   foreground service (`PresenceService.kt`) that uses the native Firebase
   RTDB SDK. It shares the Flutter plugin's connection, works without the
   Flutter engine, and restarts after reboot and after app update.
+
+## What changed (build 3.2.2+30)
+
+### Force update
+- `ForceUpdateManager` asks Google Play on **every start and every
+  return to the app** (`InAppUpdate.checkForUpdate`).
+  - If Play has a newer build, the full-screen Play update starts and the
+    app is blocked behind "Update required". Remote Config isn't needed for
+    this.
+  - Backing out of Play leaves the block in place; "Update Now" retries.
+  - Debug and sideloaded builds skip this check without crashing.
+- "Update Now" falls back to
+  `https://play.google.com/store/apps/details?id=com.tbtrapp` when
+  `playstore_url` isn't set.
+- `tool/release.ps1` + `tool/set_remote_config.mjs` build the `.aab` and
+  `.apk` and publish `latest_version_code`. `-Enforce`, run after Play is
+  live, publishes `min_version_code`, `min_required_version` and
+  `force_update`. See `docs/RELEASING.md`.
+
+### Start-up and offline
+- The Audio screen's "Offline" / "Updating…" chips are gone.
+- `ConnectionStatus` combines `connectivity_plus` with a real request to
+  Google's `generate_204` endpoint.
+- `OfflineBanner` is a thin strip at the top of every screen. It shows only
+  while the internet is really gone and never blocks or resets a screen.
+- The chat list is `keepSynced` in the disk cache.
+
+### Messages
+- `PushRegistration` saves this install's OneSignal id to
+  `users/{uid}/oneSignalId` on every sign-in and whenever OneSignal reports
+  a new id.
+- Tapping a message notification opens that chat, including from a cold
+  start.
+- A push for the chat already on screen isn't shown as a notification.
+
+### Calls
+- `IncomingRingService` is a native phone-call foreground service started
+  by the call push. It plays the looping ringtone and vibration and owns the
+  full-screen notification.
+- It stops when the call is answered, declined, cancelled by the caller
+  (it watches `calls/{id}/state`), after 45 s, or when Flutter's ringing
+  screen takes over. If nobody answered, it leaves a "Missed call"
+  notification.
+- `RingtonePlayer.shared` is used by both Flutter and the service, so there
+  is never a double ring.
+- "Allow TBTR to ring when closed" (`RingSetupScreen`) is shown once after
+  sign-in, existing users included, and is available again in Settings. It
+  covers:
+  - notifications;
+  - Android 14+ full-screen calls;
+  - battery optimisation;
+  - the Infinix / Tecno / itel (Phone Master) auto-start screen, plus
+    Xiaomi, Oppo, Vivo, Huawei and Samsung equivalents, falling back to the
+    app's settings page.
+
+### Presence
+- `PresenceManager` starts at sign-in, not when a chat opens.
+- `PresenceService` is a native special-use foreground service with a
+  minimum-priority "TBTR is active" notification.
+  - It keeps the database connection, and so "Online", alive while another
+    app is open.
+  - `onDisconnect` still switches the user to "Last seen" when the
+    connection really drops.
+  - It restarts after a reboot and after an app update
+    (`PresenceBootReceiver`).
+- The Settings switch "Stay online in background" is on by default. When
+  it's off, the user goes offline as soon as they leave the app.
+- Users are marked offline when they delete their account. When an
+  account moves to another phone, the old phone stops without writing
+  offline, so it doesn't overwrite the new phone's status.
+- "Online" / "Last seen …" shows on contact rows, and a green dot shows on
+  avatars in the contact and chat lists. The chat header already showed it.
+  It now uses calendar days, so "last night at 23:50" reads as "yesterday",
+  not "today".

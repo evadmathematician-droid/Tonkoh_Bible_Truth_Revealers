@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../data/chat_summary.dart';
 import '../data/display_names.dart';
 import '../data/local_chat_store.dart';
+import '../widgets/presence_label.dart';
 import 'components/profile_avatar.dart';
 
 /// The "Discussions" list. Drawn from the phone's saved chat list
@@ -96,8 +97,12 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
           final name = names.nameFor(chat.otherUid);
           return ListTile(
             // Saved photo from the phone, refreshed in the background.
-            leading: CachedProfileAvatar(
-                uid: chat.otherUid, name: name, size: 48),
+            // Green dot while they're online.
+            leading: PresenceDot(
+              uid: chat.otherUid,
+              child: CachedProfileAvatar(
+                  uid: chat.otherUid, name: name, size: 48),
+            ),
             // Saved-contact name, or just the number for anyone not in
             // the phone's contacts (never their self-chosen profile name).
             title: Text(

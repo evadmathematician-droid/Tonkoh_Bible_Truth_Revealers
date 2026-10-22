@@ -5,7 +5,11 @@ import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import com.tbtrapp.calls.CallForegroundService
+import com.tbtrapp.calls.CallNotificationServiceExtension
+import com.tbtrapp.calls.IncomingRingService
+import com.tbtrapp.platform.BackgroundSettings
 import com.tbtrapp.platform.RingtonePlayer
+import com.tbtrapp.presence.PresenceService
 import com.tbtrapp.platform.SimContactsReader
 import com.tbtrapp.share.ShareInbox
 import com.tbtrapp.share.ShareShortcuts
@@ -19,6 +23,8 @@ class MainActivity : AudioServiceActivity() {
     private val callsChannel = "com.tbtrapp/calls"
 
     private val shareChannel = "com.tbtrapp/share"
+    private val presenceChannel = "com.tbtrapp/presence"
+    private val ringSetupChannel = "com.tbtrapp/ring_setup"
 
     private var ringtonePlayer: RingtonePlayer? = null
     private var callsMethodChannel: MethodChannel? = null
@@ -35,18 +41,56 @@ class MainActivity : AudioServiceActivity() {
         // "T.B.T.R – Audio Screen" in Android's share sheet (Direct Share).
         ShareShortcuts.publish(applicationContext)
 
-        ringtonePlayer = RingtonePlayer(applicationContext)
+        ringtonePlayer = RingtonePlayer.shared(applicationContext)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ringtoneChannel)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "startRingtone" -> {
+                        // Flutter's ringing screen is up: the native ring
+                        // (closed-app path) hands over to it.
+                        IncomingRingService.handOff()
+                        flutterRinging = true
                         ringtonePlayer?.start()
                         result.success(true)
                     }
                     "stopRingtone" -> {
+                        flutterRinging = false
                         ringtonePlayer?.stop()
                         result.success(true)
                     }
+                    else -> result.notImplemented()
+                }
+            }
+
+        // "Stay online in background" (lib/screens/auth/presence_manager.dart).
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, presenceChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "configure" -> {
+                        PresenceService.configure(
+                            applicationContext,
+                            call.argument<String>("uid"),
+                            call.argument<Boolean>("enabled") ?: true,
+                        )
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        // "Allow TBTR to ring when closed" (lib/permissions/ring_setup_screen.dart).
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ringSetupChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "canUseFullScreenIntent" ->
+                        result.success(BackgroundSettings.canUseFullScreenIntent(this))
+                    "openFullScreenIntentSettings" -> {
+                        BackgroundSettings.openFullScreenIntentSettings(this)
+                        result.success(true)
+                    }
+                    "openAutoStartSettings" ->
+                        result.success(BackgroundSettings.openAutoStartSettings(this))
+                    "manufacturer" -> result.success(android.os.Build.MANUFACTURER)
                     else -> result.notImplemented()
                 }
             }
@@ -144,8 +188,12 @@ class MainActivity : AudioServiceActivity() {
     }
 
     override fun onDestroy() {
-        // Never let a ring outlive the activity.
-        ringtonePlayer?.stop()
+        // Never let Flutter's ring outlive the activity (a ring the native
+        // IncomingRingService owns stops by itself).
+        if (flutterRinging) {
+            flutterRinging = false
+            ringtonePlayer?.stop()
+        }
         ringtonePlayer = null
         callsMethodChannel = null
         ShareInbox.setListener(null)
@@ -157,6 +205,9 @@ class MainActivity : AudioServiceActivity() {
         val action = intent?.getStringExtra("callAction") ?: return null
         val callId = intent.getStringExtra("callId") ?: return null
         if (callId.isBlank()) return null
+        // Answered from the notification: the in-call screen opens next,
+        // so the native ring stops now.
+        if (action == CallNotificationServiceExtension.ACTION_ACCEPT) IncomingRingService.stop()
         return mapOf(
             "callAction" to action,
             "callId" to callId,
@@ -173,5 +224,9 @@ class MainActivity : AudioServiceActivity() {
          *  in-app RTDB path is already handling an incoming call. */
         @Volatile
         var isForeground: Boolean = false
+
+        /** Flutter's incoming-call ring is playing (it owns the call UI). */
+        @Volatile
+        var flutterRinging: Boolean = false
     }
 }

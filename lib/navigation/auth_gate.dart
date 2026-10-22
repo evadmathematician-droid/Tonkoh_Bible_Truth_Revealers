@@ -14,6 +14,9 @@ import '../screens/auth/auth_manager.dart';
 import '../share/share_intake.dart';
 import '../screens/profile/profile_setup_screen.dart';
 import '../permissions/permissions_onboarding.dart';
+import '../permissions/ring_setup_screen.dart';
+import '../push/push_registration.dart';
+import '../screens/auth/presence_manager.dart';
 import '../calls/call_signaling_repository.dart';
 import '../calls/incoming_call_manager.dart';
 import '../calls/nativecallbridge.dart';
@@ -36,6 +39,10 @@ class _AuthGateState extends State<AuthGate> {
   String? _uid;
   StreamSubscription<DatabaseEvent>? _profileSub;
   final CallSignalingRepository _callSignalingRepo = CallSignalingRepository();
+
+  /// Registration just finished: its permission prompts run first, then
+  /// the ring setup screen (see ProfileSetupScreen.onDone below).
+  bool _registering = false;
 
   @override
   void initState() {
@@ -133,6 +140,15 @@ class _AuthGateState extends State<AuthGate> {
         () => unawaited(ChatSyncService.instance.start(uid)));
     // A Settings edit saved offline goes out when the connection returns.
     ProfileSettingsRepository.instance.startAutoSync();
+    // Online / Last seen for everyone else (and kept while the app is in
+    // the background), and this install's push address for messages and
+    // calls — both from sign-in, not only once a chat is opened.
+    PresenceManager.start(uid);
+    PushRegistration.start(uid);
+    if (!_registering) {
+      _afterFirstContent(const Duration(milliseconds: 2500),
+          () => unawaited(RingSetupScreen.maybeShowOnce()));
+    }
     // Anything shared in from another app while signed out can open now.
     ShareIntake.instance.onSignedIn();
 
@@ -211,7 +227,10 @@ class _AuthGateState extends State<AuthGate> {
       if (eventId == myDeviceId) {
         // Firebase agrees this is the active device — stop second-guessing.
         await AuthManager.clearClaimMarker();
-        unawaited(AuthManager.linkAuthUid(uid));
+        // Linking lets this login write the account, so retry saving the
+        // push address once it's done.
+        unawaited(AuthManager.linkAuthUid(uid)
+            .then((_) => PushRegistration.start(uid)));
         return;
       }
 
@@ -248,6 +267,9 @@ class _AuthGateState extends State<AuthGate> {
       debugPrint('[DeviceWatch] signing out uid=$uid — active device is now $effective');
       await _profileSub?.cancel();
       _profileSub = null;
+      // The account is on another phone now: its status is that phone's.
+      await PresenceManager.stop(markOffline: false);
+      PushRegistration.stop();
       await ChatSyncService.instance.stop();
       await AuthManager.clearCachedProfile();
       if (mounted) setState(() => _status = _GateStatus.needsProfile);
@@ -275,6 +297,7 @@ class _AuthGateState extends State<AuthGate> {
             final cached = await AuthManager.getCachedProfile();
             if (!mounted) return;
             if (cached != null) {
+              _registering = true;
               _setReady(cached.uid);
               // Registration just completed — this is the only code path
               // that reaches here (a normal launch with a cached profile
@@ -286,8 +309,11 @@ class _AuthGateState extends State<AuthGate> {
               // Contact sync asks for its own permission, so start it only
               // once these dialogs are done (two permission requests at
               // once fail).
-              PermissionsOnboarding.maybeRunAfterRegistration().whenComplete(
-                  () => ContactSyncService.instance.start());
+              PermissionsOnboarding.maybeRunAfterRegistration()
+                  .whenComplete(() async {
+                await ContactSyncService.instance.start();
+                await RingSetupScreen.maybeShowOnce();
+              });
             } else {
               setState(() => _status = _GateStatus.needsProfile);
             }

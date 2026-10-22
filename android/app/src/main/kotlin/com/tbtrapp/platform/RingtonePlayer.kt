@@ -120,5 +120,19 @@ class RingtonePlayer(private val context: Context) {
 
     companion object {
         private const val TAG = "RingtonePlayer"
+
+        @Volatile
+        private var sharedPlayer: RingtonePlayer? = null
+
+        /**
+         * The one player for the whole process, shared by Flutter's
+         * `startRingtone` and the native IncomingRingService, so the two
+         * can never ring on top of each other.
+         */
+        fun shared(context: Context): RingtonePlayer =
+            sharedPlayer ?: synchronized(this) {
+                sharedPlayer ?: RingtonePlayer(context.applicationContext)
+                    .also { sharedPlayer = it }
+            }
     }
 }
