@@ -26,6 +26,7 @@ import '../screens/audio/audio_bottom_bar.dart';
 import '../screens/audio/audio_drawer_content.dart';
 import '../screens/audio/audio_feed_list.dart';
 import '../screens/audio/reply_target.dart';
+import '../screens/audio/upload_review_screen.dart' show FeedUploadBanner;
 import '../screens/audio/upload_sheet.dart';
 import '../data/feed_item.dart';
 import '../data/sermon_audio.dart';
@@ -568,6 +569,11 @@ class _AudioScreenState extends State<AudioScreen> with WidgetsBindingObserver {
               style: TextStyle(color: Color(0xFFE3F2FD), fontSize: 12),
             ),
             const SizedBox(height: 4),
+            // Upload progress (hidden when there is none).
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: FeedUploadBanner(),
+            ),
             Expanded(
               // Drawn once the phone's copy is read (a few ms after launch)
               // so it opens at the right post, never at the top.

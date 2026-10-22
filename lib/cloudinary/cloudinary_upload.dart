@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 
 class CloudinaryConfig {
@@ -85,44 +87,136 @@ Future<void> uploadToCloudinary({
   required void Function(String secureUrl) onSuccess,
   required void Function(String message) onError,
 }) async {
+  try {
+    onSuccess(await cloudinaryUpload(
+      filePath: filePath,
+      fileBytes: fileBytes,
+      fileName: fileName,
+      resourceType: resourceType,
+      folder: folder,
+      onProgress: onProgress == null ? null : (f) => onProgress((f * 100).toInt()),
+    ));
+  } catch (e) {
+    onError(e.toString());
+  }
+}
+
+/// Why a [cloudinaryUpload] failed, in words a user can act on.
+class CloudinaryUploadException implements Exception {
+  CloudinaryUploadException(this.message);
+  final String message;
+  @override
+  String toString() => message;
+}
+
+/// Uploads one file to Cloudinary and returns its `secure_url`.
+///
+/// The file is streamed from [filePath] (never loaded whole into memory);
+/// [fileBytes] is for web only. [onProgress] gets 0.0–1.0.
+///
+/// Never hangs: it fails when nothing has been sent for [stallTimeout]
+/// (a dead or stuck connection), or — when given — once [totalTimeout]
+/// passes. [cancel] stops it early.
+Future<String> cloudinaryUpload({
+  String? filePath,
+  List<int>? fileBytes,
+  required String fileName,
+  required String resourceType, // "image" | "video" | "raw"
+  String folder = CloudinaryConfig.audioFolder,
+  void Function(double fraction)? onProgress,
+  Duration stallTimeout = const Duration(seconds: 60),
+  Duration? totalTimeout,
+  CancelToken? cancel,
+}) async {
   if (filePath == null && fileBytes == null) {
-    onError('No file data provided (neither filePath nor fileBytes)');
-    return;
+    throw CloudinaryUploadException('No file to upload.');
+  }
+  final token = cancel ?? CancelToken();
+  final dio = Dio(BaseOptions(
+    connectTimeout: const Duration(seconds: 20),
+    // The server answers once the whole file is in; give it time to
+    // process a large video.
+    receiveTimeout: const Duration(minutes: 3),
+  ));
+
+  String? timedOut;
+  Timer? stall;
+  void armStall() {
+    stall?.cancel();
+    stall = Timer(stallTimeout, () {
+      timedOut = 'The connection stopped — check your internet and retry.';
+      token.cancel('stalled');
+    });
   }
 
-  try {
-    final dio = Dio();
-    final url =
-        'https://api.cloudinary.com/v1_1/${CloudinaryConfig.cloudName}/$resourceType/upload';
+  final total = totalTimeout == null
+      ? null
+      : Timer(totalTimeout, () {
+          timedOut = 'Upload took too long — check your internet and retry.';
+          token.cancel('timeout');
+        });
 
+  try {
     final multipartFile = filePath != null
         ? await MultipartFile.fromFile(filePath, filename: fileName)
         : MultipartFile.fromBytes(fileBytes!, filename: fileName);
-
     final formData = FormData.fromMap({
       'upload_preset': CloudinaryConfig.uploadPreset,
       'folder': folder,
       'file': multipartFile,
     });
 
+    armStall();
     final response = await dio.post(
-      url,
+      'https://api.cloudinary.com/v1_1/${CloudinaryConfig.cloudName}/$resourceType/upload',
       data: formData,
-      onSendProgress: (sent, total) {
-        if (total > 0 && onProgress != null) {
-          final percent = ((sent * 100) / total).clamp(0, 100).toInt();
-          onProgress(percent);
+      cancelToken: token,
+      onSendProgress: (sent, size) {
+        // Everything sent: now waiting for the server, not stalled.
+        if (size > 0 && sent >= size) {
+          stall?.cancel();
+        } else {
+          armStall();
+        }
+        if (size > 0 && onProgress != null) {
+          onProgress((sent / size).clamp(0.0, 1.0));
         }
       },
     );
 
     final secureUrl = response.data['secure_url'] as String?;
     if (secureUrl == null || secureUrl.isEmpty) {
-      onError('Upload succeeded but URL missing');
-      return;
+      throw CloudinaryUploadException('Upload finished but no link came back.');
     }
-    onSuccess(secureUrl);
-  } catch (e) {
-    onError(e.toString());
+    return secureUrl;
+  } on DioException catch (e) {
+    if (timedOut != null) throw CloudinaryUploadException(timedOut!);
+    if (CancelToken.isCancel(e)) throw CloudinaryUploadException('Cancelled.');
+    final status = e.response?.statusCode;
+    final serverMsg = e.response?.data is Map
+        ? (e.response!.data['error']?['message'] as String?)
+        : null;
+    throw CloudinaryUploadException(switch (e.type) {
+      DioExceptionType.connectionError ||
+      DioExceptionType.connectionTimeout =>
+        'No internet connection.',
+      _ when serverMsg != null => serverMsg,
+      _ when status != null => 'Upload failed (error $status).',
+      _ => 'Upload failed — check your internet and retry.',
+    });
+  } finally {
+    stall?.cancel();
+    total?.cancel();
   }
+}
+
+/// A Cloudinary image URL with [transformation] applied (e.g.
+/// `c_limit,w_720`), for a smaller download than the original. Returns
+/// [url] unchanged when it isn't a Cloudinary upload URL.
+String cloudinaryImageVariant(String url, String transformation) {
+  const marker = '/image/upload/';
+  final idx = url.indexOf(marker);
+  if (idx == -1) return url;
+  final head = url.substring(0, idx + marker.length);
+  return '$head$transformation/${url.substring(idx + marker.length)}';
 }

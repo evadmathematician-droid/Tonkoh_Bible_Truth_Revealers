@@ -45,6 +45,7 @@ class _AdminAudioApprovalScreenState extends State<AdminAudioApprovalScreen> {
           }
         });
       }
+      sortPendingForReview(list);
       setState(() {
         _pending
           ..clear()
@@ -102,7 +103,25 @@ class _AdminAudioApprovalScreenState extends State<AdminAudioApprovalScreen> {
     } catch (_) {}
   }
 
-  Future<void> _approve(String sermonId) async {
+  /// Approves every part of an upload batch at once, in part order, with
+  /// consecutive timestamps — so the parts sit together, in order, in the
+  /// feed. One "New in TBTR" push for the whole batch.
+  Future<void> _approveBatch(String batchId) async {
+    final parts = _pending.where((p) => p['batchId'] == batchId).toList()
+      ..sort((a, b) => _part(a).compareTo(_part(b)));
+    final base = DateTime.now().millisecondsSinceEpoch;
+    for (var i = 0; i < parts.length; i++) {
+      final id = parts[i]['id']?.toString();
+      if (id == null) continue;
+      await _approve(id, timestamp: base + i, notify: i == 0);
+    }
+  }
+
+  static int _part(Map<String, dynamic> m) =>
+      (m['partNumber'] as num?)?.toInt() ?? 0;
+
+  Future<void> _approve(String sermonId,
+      {int? timestamp, bool notify = true}) async {
     final db = FirebaseDatabase.instance.ref('sermons');
     final snapshot = await db.child('pending').child(sermonId).get();
     if (!snapshot.exists) return;
@@ -112,7 +131,7 @@ class _AdminAudioApprovalScreenState extends State<AdminAudioApprovalScreen> {
     // the feed — same fix noted in the Kotlin source (avoids sorting by
     // original upload time instead of approval time).
     data['status'] = 'approved';
-    data['timestamp'] = DateTime.now().millisecondsSinceEpoch;
+    data['timestamp'] = timestamp ?? DateTime.now().millisecondsSinceEpoch;
 
     if (data['mediaType'] == 'TEXT') {
       // Shared plain text: published as a normal feed text post.
@@ -129,6 +148,7 @@ class _AdminAudioApprovalScreenState extends State<AdminAudioApprovalScreen> {
       await db.child('approved').child(sermonId).set(data);
     }
     await db.child('pending').child(sermonId).remove();
+    if (!notify) return;
 
     // Tell everyone the new post is live — the uploader's own push went
     // nowhere while it sat in the approval queue.
@@ -218,6 +238,14 @@ class _AdminAudioApprovalScreenState extends State<AdminAudioApprovalScreen> {
 
   Widget _buildCard(Map<String, dynamic> audio) {
     final title = audio['title']?.toString() ?? 'Untitled';
+    final batchId = audio['batchId']?.toString();
+    final totalParts = (audio['totalParts'] as num?)?.toInt() ?? 0;
+    final pendingParts = batchId == null
+        ? 0
+        : _pending.where((p) => p['batchId'] == batchId).length;
+    // "Approve all" sits on the first pending part of a batch.
+    final firstOfBatch = batchId != null &&
+        identical(_pending.firstWhere((p) => p['batchId'] == batchId), audio);
     final desc = audio['description']?.toString() ?? '';
     final url = audio['audioUrl']?.toString();
     final id = audio['id']?.toString();
@@ -243,6 +271,13 @@ class _AdminAudioApprovalScreenState extends State<AdminAudioApprovalScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (batchId != null && totalParts > 1)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text('Part ${_part(audio)} of $totalParts',
+                    style: const TextStyle(
+                        color: Color(0xFF2346A0), fontWeight: FontWeight.w600)),
+              ),
             Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 21)),
             const SizedBox(height: 12),
             if (link != null) ...[
@@ -286,6 +321,20 @@ class _AdminAudioApprovalScreenState extends State<AdminAudioApprovalScreen> {
               ),
             ],
             const SizedBox(height: 12),
+            if (firstOfBatch && pendingParts > 1) ...[
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0A8754)),
+                  onPressed: () => _approveBatch(batchId),
+                  icon: const Icon(Icons.done_all, color: Colors.white),
+                  label: Text('Approve all $pendingParts parts',
+                      style: const TextStyle(color: Colors.white)),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
             Row(
               children: [
                 Expanded(
@@ -310,4 +359,33 @@ class _AdminAudioApprovalScreenState extends State<AdminAudioApprovalScreen> {
       ),
     );
   }
+}
+/// Oldest first, with every part of an upload batch kept together in part
+/// order (the batch sits where its oldest part would).
+@visibleForTesting
+void sortPendingForReview(List<Map<String, dynamic>> items) {
+  int ts(Map<String, dynamic> m) => (m['timestamp'] as num?)?.toInt() ?? 0;
+  final batchStart = <String, int>{};
+  for (final m in items) {
+    final b = m['batchId']?.toString();
+    if (b == null) continue;
+    final t = ts(m);
+    final prev = batchStart[b];
+    batchStart[b] = prev != null && prev < t ? prev : t;
+  }
+  int key(Map<String, dynamic> m) {
+    final b = m['batchId']?.toString();
+    return b == null ? ts(m) : batchStart[b]!;
+  }
+
+  items.sort((a, b) {
+    final byTime = key(a).compareTo(key(b));
+    if (byTime != 0) return byTime;
+    final ba = a['batchId']?.toString() ?? '';
+    final bb = b['batchId']?.toString() ?? '';
+    final byBatch = ba.compareTo(bb);
+    if (byBatch != 0) return byBatch;
+    return ((a['partNumber'] as num?) ?? 0)
+        .compareTo((b['partNumber'] as num?) ?? 0);
+  });
 }
