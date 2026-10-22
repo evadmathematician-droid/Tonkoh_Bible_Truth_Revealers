@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 
 import 'data/display_names.dart';
 import 'data/local_feed_store.dart';
+import 'push/push_registration.dart';
 import 'screens/auth/auth_manager.dart';
 import 'util/connection_status.dart';
 import 'util/startup_trace.dart';
@@ -115,6 +116,9 @@ Future<void> main() async {
 
     OneSignal.initialize(oneSignalAppId);
     OneSignal.Notifications.requestPermission(true);
+    // Tapping a message notification opens that chat (also on a cold start
+    // from the notification, so registered before runApp).
+    PushRegistration.initNotificationHandling();
   }
 
   // ── Call system init ──

@@ -45,16 +45,55 @@ class MainNavHost extends StatefulWidget {
 class _MainNavHostState extends State<MainNavHost> {
   // Created once: rebuilding the host (the auth gate re-rendering) must
   // never reset navigation back to the first screen.
-  late final GoRouter _router = _buildRouter(widget.startChatUid);
+  late final GoRouter _router =
+      _buildRouter(widget.startChatUid ?? _takePendingChat());
+
+  @override
+  void initState() {
+    super.initState();
+    _liveRouter = _router;
+  }
 
   @override
   void dispose() {
+    if (identical(_liveRouter, _router)) _liveRouter = null;
     _router.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => Router.withConfig(config: _router);
+}
+
+GoRouter? _liveRouter;
+String? _pendingChatUid;
+
+String? _takePendingChat() {
+  final uid = _pendingChatUid;
+  _pendingChatUid = null;
+  return uid;
+}
+
+/// Opens the private chat with [otherUid] — from a tapped message
+/// notification. Before the signed-in screens exist (cold start from the
+/// notification) it's remembered and becomes the first screen. Does
+/// nothing if that chat is already open.
+void openPrivateChat(String otherUid) {
+  final router = _liveRouter;
+  if (router == null) {
+    _pendingChatUid = otherUid;
+    return;
+  }
+  final path = '/privateChat/$otherUid';
+  if (router.state.uri.path == path) return;
+  router.push(path);
+}
+
+/// The chat currently on screen, if any (to skip its own notifications).
+String? get openPrivateChatUid {
+  final path = _liveRouter?.state.uri.path ?? '';
+  const prefix = '/privateChat/';
+  return path.startsWith(prefix) ? path.substring(prefix.length) : null;
 }
 
 GoRouter _buildRouter(String? startChatUid) {
