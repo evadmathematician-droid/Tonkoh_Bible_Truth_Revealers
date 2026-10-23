@@ -13,6 +13,7 @@ import 'package:uuid/uuid.dart';
 import '../../config/worker_api.dart';
 import '../../data/profile_photo_cache.dart';
 import '../../data/user_profile.dart';
+import '../../push/push_registration.dart';
 import '../../util/phone_utils.dart';
 import 'presence_manager.dart';
 
@@ -402,6 +403,7 @@ class AuthManager {
     try {
       // While the account still exists (the presence rules check it).
       await PresenceManager.stop();
+      PushRegistration.stop();
       await _usersRef.child(phoneKey).remove();
       final authUid = _auth.currentUser?.uid;
       if (authUid != null) {

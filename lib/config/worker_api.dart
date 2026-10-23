@@ -12,6 +12,11 @@ class WorkerApi {
 
   static const String sendPushUrl = '$baseUrl/send-push';
   static const String sendCallPushUrl = '$baseUrl/send-call-push';
+
+  /// Verified chat / call pushes: the Worker works out the receiver from
+  /// the chat or call and the caller's Firebase ID token.
+  static const String pushMessageUrl = '$baseUrl/push/message';
+  static const String pushCallUrl = '$baseUrl/push/call';
   static const String migrationVerifyUrl = '$baseUrl/migration-verify';
   static const String turnCredentialsUrl = baseUrl;
 

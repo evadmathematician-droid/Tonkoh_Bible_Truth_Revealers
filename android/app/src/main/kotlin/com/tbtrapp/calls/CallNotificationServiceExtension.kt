@@ -10,6 +10,7 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.Person
 import com.onesignal.notifications.INotificationReceivedEvent
 import com.onesignal.notifications.INotificationServiceExtension
 import com.tbtrapp.MainActivity
@@ -22,8 +23,8 @@ import com.tbtrapp.platform.ContactDisplayNames
  * Registered via the `com.onesignal.NotificationServiceExtension`
  * `<meta-data>` in the manifest. OneSignal's FCM service spins the process
  * up far enough to run this even from a killed state, as long as the push
- * was delivered high-priority (the Cloudflare `/send-call-push` route sends
- * `priority: 10`).
+ * was delivered high-priority (the Cloudflare `/push/call` route sends a
+ * data-only push with `priority: 10`).
  *
  * For a call push (`data.type == "incoming_call"`) this posts a
  * **full-screen-intent** notification on a high-importance,
@@ -46,8 +47,10 @@ class CallNotificationServiceExtension : INotificationServiceExtension {
         val data = event.notification.additionalData
         val type = data?.optString("type").orEmpty()
         val callId = data?.optString("callId").orEmpty()
+        // /push/call sends `isCall: true` (data only); older relays only `type`.
+        val isCall = type == "incoming_call" || data?.optBoolean("isCall") == true
 
-        if (data == null || type != "incoming_call" || callId.isBlank()) {
+        if (data == null || !isCall || callId.isBlank()) {
             // Not a call push — let OneSignal display it, but with the
             // sender shown under this phone's contact naming rule.
             if (data != null) applyContactName(event, data)
@@ -198,6 +201,9 @@ class CallNotificationServiceExtension : INotificationServiceExtension {
             )
 
             val title = if (callType == "video") "Incoming video call" else "Incoming call"
+            // CallStyle: the system's own incoming-call layout (big Answer /
+            // Decline buttons) on Android 12+; plain actions on older ones.
+            val caller = Person.Builder().setName(callerName).setImportant(true).build()
 
             return NotificationCompat.Builder(ctx, channelId)
                 .setSmallIcon(ctx.applicationInfo.icon)
@@ -211,8 +217,7 @@ class CallNotificationServiceExtension : INotificationServiceExtension {
                 .setTimeoutAfter(45_000L)
                 .setFullScreenIntent(fullScreenPi, true)
                 .setContentIntent(fullScreenPi)
-                .addAction(0, "Decline", declinePi)
-                .addAction(0, "Accept", acceptPi)
+                .setStyle(NotificationCompat.CallStyle.forIncomingCall(caller, declinePi, acceptPi))
                 .build()
         }
 

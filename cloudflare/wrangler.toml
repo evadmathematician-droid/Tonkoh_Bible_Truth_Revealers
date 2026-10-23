@@ -1,0 +1,10 @@
+# Deploys worker_full.js over the existing Worker (the one the app calls at
+# https://small-dream-b231.tonkohbibletruthrevealers.workers.dev).
+# Secrets are set with `npx wrangler secret put <NAME>` — see the list at the
+# top of worker_full.js. Never put them in this file.
+name = "small-dream-b231"
+main = "worker_full.js"
+compatibility_date = "2025-01-01"
+
+# Keep variables that were set in the Cloudflare dashboard on deploy.
+keep_vars = true

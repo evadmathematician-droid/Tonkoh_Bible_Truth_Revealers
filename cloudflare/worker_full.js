@@ -32,6 +32,12 @@
 //       "migrationLog": { "$phone": { ".read": false, ".write": false } }
 //     and make sure "presence" is readable by the Worker's token (it is,
 //     via the service account).
+//   * /push/message and /push/call: verified chat and call pushes. The
+//     sender comes from the Firebase ID token (authIndex + users/{phone}/
+//     authUid, as in database.rules.json), must be in the chat / be the
+//     call's caller, and the push goes to the other person by OneSignal
+//     external ID (falling back to users/{phone}/oneSignalId for phones on
+//     older builds). The call push is data-only, priority 10, ttl 30 s.
 //
 // Required secrets:
 //   RELAY_SECRET            legacy shared secret (transition only — see
@@ -649,7 +655,230 @@ async function handleMigrationVerify(request, env) {
 }
 
 // =====================================================================
-// Main fetch handler (unchanged)
+// Verified message and call pushes: /push/message and /push/call
+//
+// Unlike the older /send-push and /send-call-push relays (kept for builds
+// that still call them), the app never says WHO to notify or what the
+// push says beyond a fallback preview: the Worker works out the sender from
+// the Firebase ID token, checks they really are in that chat / placed that
+// call, and sends to the other person by OneSignal external ID (the app
+// calls OneSignal.login(<account id>) at sign-in). No legacy secret here.
+// =====================================================================
+
+// The account (phone key) behind a verified Firebase login — the same link
+// database.rules.json checks: authIndex/{authUid} = phone and
+// users/{phone}/authUid = authUid.
+async function accountForCaller(request, env) {
+  const claims = await verifyFirebaseIdToken(request, env);
+  if (!claims) return null;
+  const phone = await dbGet(env, `authIndex/${encodeURIComponent(claims.sub)}`);
+  if (typeof phone !== "string" || !phone) return null;
+  const linked = await dbGet(env, `users/${phoneKey(phone)}/authUid`);
+  return linked === claims.sub ? phone : null;
+}
+
+function pushEnvMissing(env) {
+  return [
+    "FIREBASE_DB_URL",
+    "FIREBASE_CLIENT_EMAIL",
+    "FIREBASE_PRIVATE_KEY",
+    "ONESIGNAL_APP_ID",
+    "ONESIGNAL_REST_API_KEY",
+  ].filter((k) => !env[k]);
+}
+
+async function oneSignalSend(env, payload) {
+  const res = await fetch("https://api.onesignal.com/notifications", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Key ${env.ONESIGNAL_REST_API_KEY}`,
+    },
+    body: JSON.stringify({ app_id: env.ONESIGNAL_APP_ID, ...payload }),
+  });
+  let body = null;
+  try {
+    body = await res.json();
+  } catch (_) {}
+  return { ok: res.ok, body };
+}
+
+// Sends [payload] to [account] by external ID. A phone on an older build
+// never called OneSignal.login, so when nobody matched, retry on the
+// subscription id that phone saved at users/{account}/oneSignalId.
+async function pushToAccount(env, account, payload) {
+  const first = await oneSignalSend(env, {
+    ...payload,
+    include_aliases: { external_id: [account] },
+    target_channel: "push",
+  });
+  if (first.ok && first.body && first.body.id) {
+    return { ok: true, via: "external_id" };
+  }
+  const subId = await dbGet(env, `users/${phoneKey(account)}/oneSignalId`);
+  if (typeof subId !== "string" || !subId) {
+    return { ok: false, detail: first.body };
+  }
+  const second = await oneSignalSend(env, {
+    ...payload,
+    include_subscription_ids: [subId],
+  });
+  return second.ok && second.body && second.body.id
+    ? { ok: true, via: "subscription_id" }
+    : { ok: false, detail: second.body };
+}
+
+function messageLabel(msg, fallback) {
+  const text = String((msg && msg.text) || "").trim();
+  switch (msg && msg.type) {
+    case "voice":
+      return "🎤 Voice note";
+    case "image":
+      return text ? `📷 ${text}` : "📷 Photo";
+    case "video":
+      return text ? `🎥 ${text}` : "🎥 Video";
+    case "sticker":
+      return "🩹 Sticker";
+    case "audio":
+      return `🎵 ${msg.fileName || "Audio"}`;
+    case "file":
+      return `📎 ${msg.fileName || "File"}`;
+    case "link":
+      return `🔗 ${(msg.link && msg.link.title) || (msg.link && msg.link.url) || text}`;
+    default:
+      return text || fallback;
+  }
+}
+
+function clip(s, max) {
+  const str = String(s || "");
+  return str.length > max ? `${str.slice(0, max - 1)}…` : str;
+}
+
+// Body: { chatId, messageId?, preview? }
+async function handlePushMessage(request, env) {
+  const missing = pushEnvMissing(env);
+  if (missing.length) {
+    return json({ error: "unavailable", detail: `Worker missing: ${missing.join(", ")}` }, 500);
+  }
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "invalid_json" }, 400);
+  }
+  const chatId = String((body && body.chatId) || "");
+  const messageId = String((body && body.messageId) || "");
+  const preview = clip((body && body.preview) || "", 200);
+
+  try {
+    const sender = await accountForCaller(request, env);
+    if (!sender) return json({ error: "unauthorized" }, 401);
+
+    // Private chat ids are "<accountA>_<accountB>"; the sender must be one
+    // of the two, and the receiver is the other.
+    let receiver = null;
+    if (chatId.startsWith(`${sender}_`)) receiver = chatId.slice(sender.length + 1);
+    else if (chatId.endsWith(`_${sender}`)) receiver = chatId.slice(0, -(sender.length + 1));
+    if (!receiver || receiver === sender || receiver.includes("_")) {
+      return json({ error: "not_a_participant" }, 403);
+    }
+    const profile = await dbGet(env, `users/${phoneKey(receiver)}`);
+    if (!profile) return json({ error: "unknown_receiver" }, 404);
+
+    // The message is normally still on the relay; once the receiver's
+    // phone has saved it, it's gone and the app's preview is used.
+    let msg = null;
+    if (messageId && !/[.#$\[\]\/]/.test(messageId)) {
+      msg = await dbGet(env, `privateChats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}`);
+      if (msg && msg.senderId !== sender) return json({ error: "not_your_message" }, 403);
+    }
+    const content = clip(messageLabel(msg, preview), 200);
+    if (!content) return json({ error: "missing_content" }, 400);
+
+    const me = (await dbGet(env, `users/${phoneKey(sender)}`)) || {};
+    const result = await pushToAccount(env, receiver, {
+      priority: 10,
+      android_group: `chat_${chatId}`,
+      thread_id: `chat_${chatId}`,
+      headings: { en: clip(me.name || sender, 60) },
+      contents: { en: content },
+      // senderUid + chatId: the receiving phone swaps the title for its own
+      // contact name, and tapping opens this chat (PushRegistration).
+      data: { type: "chat_message", senderUid: sender, chatId },
+    });
+    return result.ok
+      ? json({ ok: true, via: result.via })
+      : json({ error: "onesignal_failed", detail: result.detail }, 502);
+  } catch (err) {
+    return json({ error: "worker_exception", detail: String(err) }, 500);
+  }
+}
+
+// A call push older than this is stale: the caller has stopped ringing.
+const CALL_PUSH_MAX_AGE_MS = 60 * 1000;
+
+// Body: { callId }
+async function handlePushCall(request, env) {
+  const missing = pushEnvMissing(env);
+  if (missing.length) {
+    return json({ error: "unavailable", detail: `Worker missing: ${missing.join(", ")}` }, 500);
+  }
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "invalid_json" }, 400);
+  }
+  const callId = String((body && body.callId) || "");
+  if (!callId || /[.#$\[\]\/]/.test(callId)) return json({ error: "missing_fields" }, 400);
+
+  try {
+    const caller = await accountForCaller(request, env);
+    if (!caller) return json({ error: "unauthorized" }, 401);
+
+    const call = await dbGet(env, `calls/${encodeURIComponent(callId)}`);
+    if (!call) return json({ error: "unknown_call" }, 404);
+    if (call.callerId !== caller) return json({ error: "not_your_call" }, 403);
+    const callee = String(call.calleeId || "");
+    if (!callee || callee === caller) return json({ error: "bad_call" }, 400);
+    if (String(call.state || "").toUpperCase() !== "RINGING") {
+      return json({ error: "call_not_ringing" }, 409);
+    }
+    if (Number(call.createdAt) && Date.now() - Number(call.createdAt) > CALL_PUSH_MAX_AGE_MS) {
+      return json({ error: "call_too_old" }, 409);
+    }
+
+    const me = (await dbGet(env, `users/${phoneKey(caller)}`)) || {};
+    const callType = call.type === "video" ? "video" : "audio";
+    const result = await pushToAccount(env, callee, {
+      // Data only: the app's NotificationServiceExtension rings with a
+      // full-screen call notification instead of a normal banner.
+      content_available: true,
+      priority: 10,
+      // A call is only relevant while it rings.
+      ttl: 30,
+      data: {
+        type: "incoming_call",
+        isCall: true,
+        callId,
+        callerId: caller,
+        callerName: clip(me.name || call.callerName || caller, 60),
+        callerPhoto: String(me.photoUrl || call.callerPhoto || ""),
+        callType,
+        chatId: String(call.chatId || ""),
+      },
+    });
+    return result.ok
+      ? json({ ok: true, via: result.via })
+      : json({ error: "onesignal_failed", detail: result.detail }, 502);
+  } catch (err) {
+    return json({ error: "worker_exception", detail: String(err) }, 500);
+  }
+}
+
+// =====================================================================
+// Main fetch handler
 // =====================================================================
 
 export default {
@@ -846,6 +1075,18 @@ export default {
 
     if (url.pathname === "/migration-verify") {
       return handleMigrationVerify(request, env);
+    }
+
+    if (url.pathname === "/push/message" || url.pathname === "/push/call") {
+      if (request.method !== "POST") {
+        return new Response("Method not allowed", {
+          status: 405,
+          headers: CORS_HEADERS,
+        });
+      }
+      return url.pathname === "/push/message"
+        ? handlePushMessage(request, env)
+        : handlePushCall(request, env);
     }
 
     return new Response("Not found", { status: 404, headers: CORS_HEADERS });

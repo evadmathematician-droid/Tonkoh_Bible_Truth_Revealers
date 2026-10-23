@@ -187,6 +187,7 @@ class ChatSyncService {
         senderName: message.senderName,
         messageBody: label,
         senderUid: message.senderId,
+        messageId: message.id,
       ));
     } catch (e) {
       debugPrint('ChatSync: send ${message.id} failed, stays pending: $e');

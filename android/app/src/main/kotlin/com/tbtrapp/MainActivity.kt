@@ -9,7 +9,6 @@ import com.tbtrapp.calls.CallNotificationServiceExtension
 import com.tbtrapp.calls.IncomingRingService
 import com.tbtrapp.platform.BackgroundSettings
 import com.tbtrapp.platform.RingtonePlayer
-import com.tbtrapp.presence.PresenceService
 import com.tbtrapp.platform.SimContactsReader
 import com.tbtrapp.share.ShareInbox
 import com.tbtrapp.share.ShareShortcuts
@@ -23,7 +22,6 @@ class MainActivity : AudioServiceActivity() {
     private val callsChannel = "com.tbtrapp/calls"
 
     private val shareChannel = "com.tbtrapp/share"
-    private val presenceChannel = "com.tbtrapp/presence"
     private val ringSetupChannel = "com.tbtrapp/ring_setup"
 
     private var ringtonePlayer: RingtonePlayer? = null
@@ -56,22 +54,6 @@ class MainActivity : AudioServiceActivity() {
                     "stopRingtone" -> {
                         flutterRinging = false
                         ringtonePlayer?.stop()
-                        result.success(true)
-                    }
-                    else -> result.notImplemented()
-                }
-            }
-
-        // "Stay online in background" (lib/screens/auth/presence_manager.dart).
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, presenceChannel)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "configure" -> {
-                        PresenceService.configure(
-                            applicationContext,
-                            call.argument<String>("uid"),
-                            call.argument<Boolean>("enabled") ?: true,
-                        )
                         result.success(true)
                     }
                     else -> result.notImplemented()

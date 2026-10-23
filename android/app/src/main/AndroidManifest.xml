@@ -43,11 +43,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
-    <!-- "Stay online in background": PresenceService (Play Console needs the
-         special-use foreground service declaration for it). -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
-    <!-- Restart PresenceService after a reboot / app update. -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
     <!-- Play Store otherwise treats these hardware features as REQUIRED
          because of the CAMERA / RECORD_AUDIO / READ_PHONE_STATE permissions,
@@ -204,27 +199,6 @@
             android:name=".calls.IncomingRingService"
             android:exported="false"
             android:foregroundServiceType="phoneCall" />
-
-        <!-- Keeps the user Online (and the database connection open) while
-             the app is in the background. -->
-        <service
-            android:name=".presence.PresenceService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Keeps the chat connection open while the app is in the background, so contacts see the user as online and messages and calls arrive immediately. The user can turn it off in Settings." />
-        </service>
-
-        <receiver
-            android:name=".presence.PresenceBootReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED"/>
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
-                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
-            </intent-filter>
-        </receiver>
 
         <service
             android:name=".audio.AudioPlaybackService"

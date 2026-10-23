@@ -6,9 +6,15 @@ import 'package:onesignal_flutter/onesignal_flutter.dart';
 
 import '../navigation/app_router.dart';
 
-/// Keeps `users/{uid}/oneSignalId` — the address every message and call
-/// push is sent to — pointing at THIS install, and opens the right chat
-/// when a message notification is tapped.
+/// Ties this install's push address to the signed-in account, and opens
+/// the right chat when a message notification is tapped.
+///
+/// Pushes are addressed by OneSignal external ID = the account id
+/// ([OneSignal.login] at sign-in, [OneSignal.logout] at sign-out). OneSignal
+/// keeps that link on its servers, so pushes reach the phone after a
+/// restart even if TBTR is never opened. `users/{uid}/oneSignalId` is still
+/// saved: the Worker falls back to it for phones on older builds that never
+/// logged in, and account migration uses it.
 ///
 /// Before this, the id was saved only once, at registration, and only if
 /// OneSignal already had one at that moment (often not, on a fresh
@@ -51,6 +57,7 @@ class PushRegistration {
     if (!_supported) return;
     if (_uid != uid) _savedId = null;
     _uid = uid;
+    unawaited(_login(uid));
     if (!_listening) {
       _listening = true;
       OneSignal.User.pushSubscription.addObserver((state) {
@@ -62,9 +69,24 @@ class PushRegistration {
     if (id != null) unawaited(_save(id));
   }
 
+  /// Signed out (account moved to another phone, or deleted): this install
+  /// stops receiving the account's pushes.
   static void stop() {
     _uid = null;
     _savedId = null;
+    if (!_supported) return;
+    unawaited(OneSignal.logout().catchError((Object e) {
+      debugPrint('PushRegistration: OneSignal logout failed: $e');
+    }));
+  }
+
+  static Future<void> _login(String uid) async {
+    try {
+      await OneSignal.login(uid);
+    } catch (e) {
+      // Retried on the next start.
+      debugPrint('PushRegistration: OneSignal login failed: $e');
+    }
   }
 
   static Future<void> _save(String id) async {

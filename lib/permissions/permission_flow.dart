@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../navigation/call_navigator.dart';
+import 'background_help_screen.dart';
 
 /// The app's permission asks: the standard Android "Allow / Don't allow"
 /// popups one after another, skipping whatever is already allowed. A
@@ -12,6 +13,9 @@ import '../navigation/call_navigator.dart';
 ///
 /// Runs right after registration (before home), once for existing users
 /// ([maybeRunOnce], after home appears) and from Settings → App permissions.
+///
+/// On Tecno / Infinix / itel and Xiaomi phones the battery and auto-start
+/// asks are the one-time [BackgroundHelpScreen] instead, the first time.
 class PermissionFlow {
   PermissionFlow._();
 
@@ -26,7 +30,6 @@ class PermissionFlow {
     Permission.phone,
     Permission.camera,
     Permission.contacts,
-    Permission.ignoreBatteryOptimizations,
   ];
 
   /// Phones that stop closed apps unless "Auto-start" / background activity
@@ -54,11 +57,19 @@ class PermissionFlow {
   static Future<bool> hasAsked() async =>
       (await SharedPreferences.getInstance()).getBool(_askedKey) == true;
 
-  /// Existing users who never saw the sequence: run it once.
+  /// Existing users who never saw the sequence: run it once. Those who did
+  /// still get the background help screen once, on the phones that need it.
   static Future<void> maybeRunOnce(BuildContext context) async {
     if (!supported || _ranThisSession || _running != null) return;
-    if (await hasAsked() || !context.mounted) return;
-    await requestAll(context);
+    if (!await hasAsked()) {
+      if (context.mounted) await requestAll(context);
+      return;
+    }
+    if (CallNavigator.inCall) return;
+    final brand = await BackgroundHelpScreen.brandNeedingHelp();
+    if (brand != null && context.mounted) {
+      await BackgroundHelpScreen.maybeShowOnce(context, brand);
+    }
   }
 
   /// Runs the whole sequence; completes when it is done, whatever the
@@ -75,17 +86,31 @@ class PermissionFlow {
 
     for (final permission in _permissions) {
       if (CallNavigator.inCall) return;
-      try {
-        if (!await permission.isGranted) await permission.request();
-      } catch (e) {
-        debugPrint('PermissionFlow: $permission failed: $e');
-      }
+      await _request(permission);
     }
 
     if (CallNavigator.inCall || !context.mounted) return;
     await _fullScreenCalls(context);
     if (CallNavigator.inCall || !context.mounted) return;
+
+    final brand = await BackgroundHelpScreen.brandNeedingHelp();
+    if (brand != null && !await BackgroundHelpScreen.wasShown()) {
+      if (context.mounted) {
+        await BackgroundHelpScreen.maybeShowOnce(context, brand);
+      }
+      return;
+    }
+    await _request(Permission.ignoreBatteryOptimizations);
+    if (CallNavigator.inCall || !context.mounted) return;
     await _autoStart(context);
+  }
+
+  static Future<void> _request(Permission permission) async {
+    try {
+      if (!await permission.isGranted) await permission.request();
+    } catch (e) {
+      debugPrint('PermissionFlow: $permission failed: $e');
+    }
   }
 
   /// Android 14+ can switch off full-screen ringing for an app; there is no

@@ -16,7 +16,6 @@ import '../../util/base64_image_cache.dart';
 import '../../util/phone_utils.dart';
 import '../../permissions/permission_flow.dart';
 import '../auth/auth_manager.dart';
-import '../auth/presence_manager.dart';
 import 'square_crop_screen.dart';
 
 /// Settings (☰ → Settings): profile photo, account name, and the account's
@@ -52,7 +51,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _removePhoto = false;
   bool _processingPhoto = false;
   bool _saving = false;
-  bool _stayOnline = true;
 
   @override
   void initState() {
@@ -60,9 +58,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final p = widget.initialProfile ?? AuthManager.lastKnownProfile;
     if (p != null) _apply(p);
     if (widget.initialProfile == null) _load();
-    PresenceManager.stayOnlineInBackground().then((v) {
-      if (mounted && v != _stayOnline) setState(() => _stayOnline = v);
-    });
   }
 
   @override
@@ -346,20 +341,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           const SizedBox(height: 12),
                           _countryTile(p),
                           const SizedBox(height: 20),
-                          SwitchListTile(
-                            key: const Key('settingsStayOnline'),
-                            contentPadding: EdgeInsets.zero,
-                            activeThumbColor: _accent,
-                            title: const Text('Stay online in background'),
-                            subtitle: const Text(
-                                'Others see you as Online while TBTR is open '
-                                'in the background and you have internet.'),
-                            value: _stayOnline,
-                            onChanged: (v) {
-                              setState(() => _stayOnline = v);
-                              PresenceManager.setStayOnlineInBackground(v);
-                            },
-                          ),
                           if (PermissionFlow.supported)
                             ListTile(
                               contentPadding: EdgeInsets.zero,

@@ -80,11 +80,35 @@ class CallInitiator {
     _trySendCallPush(calleeUid, callerName, callMap);
   }
 
+  /// Rings the callee's phone even when TBTR is closed there: the Worker
+  /// (cloudflare/worker_full.js /push/call) checks this account placed
+  /// [callData] and sends a data-only, high-priority call push.
   Future<void> _trySendCallPush(
       String calleeUid,
       String callerName,
       Map<String, dynamic> callData,
       ) async {
+    try {
+      final response = await _dio.post(
+        WorkerApi.pushCallUrl,
+        data: {'callId': callData['callId']},
+        options: Options(
+          headers: await WorkerApi.headers(),
+          validateStatus: (s) => s != null && s < 600,
+        ),
+      );
+      final notDeployed = response.statusCode == 404 &&
+          !response.data.toString().contains('error');
+      if (!notDeployed) {
+        debugPrint('CallSignaling: call push HTTP ${response.statusCode}');
+        return;
+      }
+      // TRANSITION ONLY: the Worker hasn't been redeployed with /push/call
+      // yet — use the old relay. Delete once the new Worker is live.
+    } on DioException catch (e) {
+      debugPrint('CallSignaling: call push failed (network): ${e.message}');
+      return;
+    }
     try {
       final snap = await _db.ref('users').child(calleeUid).child('oneSignalId').get();
       final subId = snap.value as String?;
