@@ -35,15 +35,24 @@
 //   * /push/message and /push/call: verified chat and call pushes. The
 //     sender comes from the Firebase ID token (authIndex + users/{phone}/
 //     authUid, as in database.rules.json), must be in the chat / be the
-//     call's caller, and the push goes to the other person by OneSignal
-//     external ID (falling back to users/{phone}/oneSignalId for phones on
-//     older builds). The call push is data-only, priority 10, ttl 30 s.
+//     call's caller, and the push goes to the other person's current phone
+//     (users/{phone}/oneSignalId, which an account transfer replaces), or
+//     by OneSignal external ID only when no id is saved. The call push is
+//     data-only, priority 10, ttl 30 s.
+//   * Account transfer: the old phone's OneSignal subscription is deleted
+//     (after its "Account moved" alert), so a lost or switched-off old phone
+//     stops getting the account's pushes. Best-effort, never blocks.
+//   * /migration-verify: presence online == true counts as "online now",
+//     so a transfer while the owner is using the app is always verified.
 //
 // Required secrets:
 //   RELAY_SECRET            legacy shared secret (transition only — see
 //                           ALLOW_LEGACY_SECRET)
 //   ALLOW_LEGACY_SECRET     optional; set to "false" once all installs send
 //                           a Firebase ID token
+//   UNLINK_DELAY_MS         optional; wait before deleting a transferred
+//                           account's old subscription (default 15000), so
+//                           its "Account moved" alert is delivered first
 //   FIREBASE_PROJECT_ID     optional; defaults to tonkoh-bible-truth-revea-a7694
 //   TURN_TOKEN_ID           Cloudflare Realtime TURN key id
 //   TURN_API_TOKEN          Cloudflare Realtime TURN API token
@@ -317,6 +326,10 @@ async function getLastSeenMs(env, phone) {
   try {
     const p = await dbGet(env, `presence/${phoneKey(phone)}`);
     if (!p || typeof p !== "object") return 0;
+    // Online right now (TBTR open on the owner's phone): lastSeen is only
+    // when they opened it, so it says nothing about how long ago they were
+    // last there. Count it as now — the transfer must be verified.
+    if (p.online === true) return Date.now();
     // `lastSeen` is a ServerValue.timestamp (epoch ms) written by
     // PresenceManager on connect and by onDisconnect on drop.
     return Number(p.lastSeen) || 0;
@@ -471,10 +484,43 @@ async function commitMigration(
     });
   }
 
+  // The old phone must stop getting this account's pushes even if it is
+  // lost or switched off (it only signs itself out when TBTR next opens).
+  const oldSub = oldProfile.oneSignalId;
+  if (oldSub && oldSub !== newOneSignalId) {
+    const unlink = unlinkOldSubscription(env, claimedPhone, oldSub, meta.ctx);
+    if (meta.ctx && meta.ctx.waitUntil) meta.ctx.waitUntil(unlink);
+    else await unlink;
+  }
+
   return (await dbGet(env, `users/${key}`)) || {};
 }
 
-async function handleMigrationVerify(request, env) {
+// Deletes [subscriptionId] in OneSignal, which also takes it off the
+// account's external ID. With [ctx] (the response is already sent) it waits
+// UNLINK_DELAY_MS first, so the "Account moved" alert reaches that phone.
+// Never throws: a failure is logged and the transfer stands.
+async function unlinkOldSubscription(env, phone, subscriptionId, ctx) {
+  try {
+    const delay = ctx ? Number(env.UNLINK_DELAY_MS ?? 15000) : 0;
+    if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+    const res = await fetch(
+      `https://api.onesignal.com/apps/${env.ONESIGNAL_APP_ID}/subscriptions/${encodeURIComponent(subscriptionId)}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Key ${env.ONESIGNAL_REST_API_KEY}` },
+      }
+    );
+    // 404: already gone.
+    if (!res.ok && res.status !== 404) {
+      console.log(`unlink old subscription for ${phone} failed: ${res.status} ${await res.text()}`);
+    }
+  } catch (err) {
+    console.log(`unlink old subscription for ${phone} failed: ${err}`);
+  }
+}
+
+async function handleMigrationVerify(request, env, ctx) {
   if (request.method !== "POST") {
     return new Response("Method not allowed", {
       status: 405,
@@ -561,6 +607,7 @@ async function handleMigrationVerify(request, env) {
           verified: false,
           reason: lastSeenMs > 0 ? "offline_direct" : "no_presence_direct",
           authUid,
+          ctx,
           lastSeenMs,
           offlineMs: Number.isFinite(offlineMs) ? offlineMs : null,
         }
@@ -601,6 +648,7 @@ async function handleMigrationVerify(request, env) {
           lastSeenMs,
           offlineMs,
           authUid,
+          ctx,
         }
       );
       return json({ ok: true, profile }, 200);
@@ -646,6 +694,7 @@ async function handleMigrationVerify(request, env) {
         lastSeenMs,
         offlineMs,
         authUid,
+        ctx,
       }
     );
     return json({ ok: true, profile }, 200);
@@ -703,29 +752,30 @@ async function oneSignalSend(env, payload) {
   return { ok: res.ok, body };
 }
 
-// Sends [payload] to [account] by external ID. A phone on an older build
-// never called OneSignal.login, so when nobody matched, retry on the
-// subscription id that phone saved at users/{account}/oneSignalId.
+// Sends [payload] to [account]'s current phone: the subscription id saved
+// at users/{account}/oneSignalId, which an account transfer replaces — so a
+// lost or switched-off old phone never gets it. The OneSignal external ID
+// (every phone that ever signed in to the account) is used only when no id
+// is saved.
 async function pushToAccount(env, account, payload) {
-  const first = await oneSignalSend(env, {
+  const subId = await dbGet(env, `users/${phoneKey(account)}/oneSignalId`);
+  if (typeof subId === "string" && subId) {
+    const r = await oneSignalSend(env, {
+      ...payload,
+      include_subscription_ids: [subId],
+    });
+    return r.ok && r.body && r.body.id
+      ? { ok: true, via: "subscription_id" }
+      : { ok: false, detail: r.body };
+  }
+  const r = await oneSignalSend(env, {
     ...payload,
     include_aliases: { external_id: [account] },
     target_channel: "push",
   });
-  if (first.ok && first.body && first.body.id) {
-    return { ok: true, via: "external_id" };
-  }
-  const subId = await dbGet(env, `users/${phoneKey(account)}/oneSignalId`);
-  if (typeof subId !== "string" || !subId) {
-    return { ok: false, detail: first.body };
-  }
-  const second = await oneSignalSend(env, {
-    ...payload,
-    include_subscription_ids: [subId],
-  });
-  return second.ok && second.body && second.body.id
-    ? { ok: true, via: "subscription_id" }
-    : { ok: false, detail: second.body };
+  return r.ok && r.body && r.body.id
+    ? { ok: true, via: "external_id" }
+    : { ok: false, detail: r.body };
 }
 
 function messageLabel(msg, fallback) {
@@ -882,7 +932,7 @@ async function handlePushCall(request, env) {
 // =====================================================================
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     if (request.method === "OPTIONS") {
@@ -1074,7 +1124,7 @@ export default {
     }
 
     if (url.pathname === "/migration-verify") {
-      return handleMigrationVerify(request, env);
+      return handleMigrationVerify(request, env, ctx);
     }
 
     if (url.pathname === "/push/message" || url.pathname === "/push/call") {
