@@ -13,8 +13,7 @@ import '../data/profile_settings_repository.dart';
 import '../screens/auth/auth_manager.dart';
 import '../share/share_intake.dart';
 import '../screens/profile/profile_setup_screen.dart';
-import '../permissions/permissions_onboarding.dart';
-import '../permissions/ring_setup_screen.dart';
+import '../permissions/permission_flow.dart';
 import '../push/push_registration.dart';
 import '../screens/auth/presence_manager.dart';
 import '../calls/call_signaling_repository.dart';
@@ -145,9 +144,12 @@ class _AuthGateState extends State<AuthGate> {
     // calls — both from sign-in, not only once a chat is opened.
     PresenceManager.start(uid);
     PushRegistration.start(uid);
+    // Existing users who never had the permission popups: once, after home
+    // is up (a new registration already ran them before home).
     if (!_registering) {
-      _afterFirstContent(const Duration(milliseconds: 2500),
-          () => unawaited(RingSetupScreen.maybeShowOnce()));
+      _afterFirstContent(const Duration(milliseconds: 2500), () {
+        if (mounted) unawaited(PermissionFlow.maybeRunOnce(context));
+      });
     }
     // Anything shared in from another app while signed out can open now.
     ShareIntake.instance.onSignedIn();
@@ -298,22 +300,15 @@ class _AuthGateState extends State<AuthGate> {
             if (!mounted) return;
             if (cached != null) {
               _registering = true;
-              _setReady(cached.uid);
               // Registration just completed — this is the only code path
               // that reaches here (a normal launch with a cached profile
-              // goes through _bootstrap). Fire the upfront
-              // Phone → Camera → Microphone → ignore-battery-optimization
-              // prompts as the user lands on the home screen. Not awaited:
-              // denial must never block navigation, and the helper is a
-              // no-op after the first run.
-              // Contact sync asks for its own permission, so start it only
-              // once these dialogs are done (two permission requests at
-              // once fail).
-              PermissionsOnboarding.maybeRunAfterRegistration()
-                  .whenComplete(() async {
-                await ContactSyncService.instance.start();
-                await RingSetupScreen.maybeShowOnce();
-              });
+              // goes through _bootstrap). The permission popups run first,
+              // one after another; whatever the answers, home opens when
+              // they are done.
+              await PermissionFlow.requestAll(this.context);
+              if (!mounted) return;
+              _setReady(cached.uid);
+              unawaited(ContactSyncService.instance.start());
             } else {
               setState(() => _status = _GateStatus.needsProfile);
             }

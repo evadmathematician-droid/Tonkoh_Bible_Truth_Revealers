@@ -14,7 +14,7 @@ import '../../data/profile_settings_repository.dart';
 import '../../data/user_profile.dart';
 import '../../util/base64_image_cache.dart';
 import '../../util/phone_utils.dart';
-import '../../permissions/ring_setup_screen.dart';
+import '../../permissions/permission_flow.dart';
 import '../auth/auth_manager.dart';
 import '../auth/presence_manager.dart';
 import 'square_crop_screen.dart';
@@ -360,19 +360,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               PresenceManager.setStayOnlineInBackground(v);
                             },
                           ),
-                          if (RingSetupScreen.supported)
+                          if (PermissionFlow.supported)
                             ListTile(
                               contentPadding: EdgeInsets.zero,
-                              leading: const Icon(Icons.ring_volume,
+                              leading: const Icon(Icons.verified_user_outlined,
                                   color: _accent),
-                              title: const Text('Ring when app is closed'),
-                              subtitle: const Text(
-                                  'Phone settings for calls and messages'),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () => Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                      builder: (_) =>
-                                          const RingSetupScreen())),
+                              title: const Text('App permissions'),
+                              onTap: () => PermissionFlow.requestAll(context),
                             ),
                         ],
                       ),

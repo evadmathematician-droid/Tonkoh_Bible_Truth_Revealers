@@ -78,7 +78,8 @@ class MainActivity : AudioServiceActivity() {
                 }
             }
 
-        // "Allow TBTR to ring when closed" (lib/permissions/ring_setup_screen.dart).
+        // Full-screen-call and auto-start helpers for the permission popups
+        // (lib/permissions/permission_flow.dart).
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ringSetupChannel)
             .setMethodCallHandler { call, result ->
                 when (call.method) {

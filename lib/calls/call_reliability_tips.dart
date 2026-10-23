@@ -5,7 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 /// Manufacturer-specific "keep calls working in the background" guidance.
 ///
 /// Stock Android's battery-optimization exemption (asked once in
-/// `PermissionsOnboarding`) is not enough on Transsion (Infinix/Tecno),
+/// `PermissionFlow`) is not enough on Transsion (Infinix/Tecno),
 /// Xiaomi, Samsung, Oppo/Realme, Huawei etc. — they each have an extra
 /// "Autostart" / "Protected apps" / "background activity" toggle that no app
 /// can flip programmatically. Surface [tipForThisDevice] from a settings /

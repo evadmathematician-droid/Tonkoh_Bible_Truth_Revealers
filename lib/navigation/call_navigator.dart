@@ -8,6 +8,9 @@ class CallNavigator {
 
   static BuildContext? get context => key.currentContext;
 
+  /// True while an incoming / outgoing / in-call screen is open.
+  static bool get inCall => _CallRoute.live > 0;
+
   static Future<T?> toIncomingCall<T>({
     required String callId,
     required String callerId,
@@ -19,8 +22,7 @@ class CallNavigator {
     final ctx = context;
     if (ctx == null) return null;
     return Navigator.of(ctx).push<T>(
-      MaterialPageRoute(
-        fullscreenDialog: true,
+      _CallRoute(
         builder: (_) => IncomingCallScreen(
           callId: callId,
           callerId: callerId,
@@ -44,8 +46,7 @@ class CallNavigator {
     final ctx = context;
     if (ctx == null) return null;
     return Navigator.of(ctx).push<T>(
-      MaterialPageRoute(
-        fullscreenDialog: true,
+      _CallRoute(
         builder: (_) => OutgoingCallScreen(
           callId: callId,
           callerUid: callerUid,
@@ -67,8 +68,7 @@ class CallNavigator {
     final ctx = context;
     if (ctx == null) return null;
     return Navigator.of(ctx).push<T>(
-      MaterialPageRoute(
-        fullscreenDialog: true,
+      _CallRoute(
         builder: (_) => OngoingCallScreen(
           callId: callId,
           callType: callType,
@@ -117,8 +117,7 @@ class CallNavigator {
     final ctx = context;
     if (ctx == null) return null;
     return Navigator.of(ctx).pushAndRemoveUntil<T>(
-      MaterialPageRoute(
-        fullscreenDialog: true,
+      _CallRoute(
         builder: (_) => OngoingCallScreen(
           callId: callId,
           callType: callType,
@@ -128,5 +127,25 @@ class CallNavigator {
       ),
       (r) => r.isFirst,
     );
+  }
+}
+
+/// A call screen's route. Counts the ones on screen for
+/// [CallNavigator.inCall]; dispose runs however the route goes away.
+class _CallRoute<T> extends MaterialPageRoute<T> {
+  _CallRoute({required super.builder}) : super(fullscreenDialog: true);
+
+  static int live = 0;
+
+  @override
+  void install() {
+    super.install();
+    live++;
+  }
+
+  @override
+  void dispose() {
+    live--;
+    super.dispose();
   }
 }

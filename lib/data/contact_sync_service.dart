@@ -6,6 +6,7 @@ import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../permissions/permission_flow.dart';
 import 'contacts_cache.dart';
 import 'contacts_repository.dart';
 import 'display_names.dart';
@@ -71,6 +72,11 @@ class ContactSyncService with WidgetsBindingObserver {
   Future<bool> _ensurePermission() async {
     try {
       if (await Permission.contacts.isGranted) return true;
+      // The permission popups ask for contacts too: wait for them, and
+      // don't ask a second time after a "Don't allow" there.
+      await PermissionFlow.idle;
+      if (await Permission.contacts.isGranted) return true;
+      if (await PermissionFlow.hasAsked()) return false;
       final prefs = await SharedPreferences.getInstance();
       if (prefs.getBool(_askedKey) == true) return false;
       await prefs.setBool(_askedKey, true);

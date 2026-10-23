@@ -12,7 +12,7 @@ import android.util.Log
 
 /**
  * The phone settings that decide whether calls and messages arrive while the
- * app is closed, for the "Allow TBTR to ring when closed" screen.
+ * app is closed, for the permission popups (lib/permissions/permission_flow.dart).
  */
 object BackgroundSettings {
     private const val TAG = "BackgroundSettings"
