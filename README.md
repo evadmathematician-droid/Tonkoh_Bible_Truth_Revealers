@@ -1,17 +1,22 @@
-# tonkoh
+# Tonkoh Bible Truth Revealers (TBTR)
 
-A new Flutter project.
+**Tonkoh Bible Truth Revealers** (TBTR) is a free Christian app for Gospel
+audio teachings, private chat, and voice and video calls.
 
-## Getting Started
+## Features
 
-This project is a starting point for a Flutter application.
+- **Gospel audio** – listen to Tonkoh Bible Truth Revealers teachings and sermons
+- **Private chat** – send messages, photos, videos and voice notes
+- **Voice and video calls** – call other TBTR members
+- **Notifications** – messages and calls arrive even when the app is closed
 
-A few resources to get you started if this is your first Flutter project:
+## Built with
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+- Flutter (Android, iOS, web)
+- Firebase Realtime Database
+- OneSignal push notifications
+- Cloudflare Workers
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## About
+
+Tonkoh Bible Truth Revealers – revealing the truth of the Bible.
