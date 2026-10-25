@@ -1,11 +1,11 @@
 {
-    "name": "tbtrapp",
-    "short_name": "tbtrapp",
+    "name": "Tonkoh Bible Truth Revealers",
+    "short_name": "TBTR",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#ffffff",
     "theme_color": "#ffffff",
-    "description": "A new Flutter project.",
+    "description": "Tonkoh Bible Truth Revealers (TBTR) - listen to Gospel audio teachings, chat privately and make voice and video calls.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
